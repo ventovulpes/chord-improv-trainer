@@ -38,7 +38,6 @@ Create the app shell and a testable note-event pipeline before depending on real
   * Recent notes
   * Detected chord
   * Suggestions
-  * Practice feedback
 * Add fake note input buttons or keyboard controls.
 * Add timestamped event replay utilities.
 
@@ -175,8 +174,6 @@ Prove the full product loop with one key and one concept.
 * Start with C major.
 * Add one concept generator: secondary dominants.
 * After detecting a chord, show 1–3 suggestions.
-* Add “Practice this” button.
-* Grade user attempts by pitch class, not octave or order.
 * Accept:
 
   * block chords
@@ -352,7 +349,6 @@ practice attempt is stored
 progress stats derive from attempts
 unsupported MIDI state renders
 suggestion card renders
-practice feedback renders
 ```
 
 ### Success Criteria
