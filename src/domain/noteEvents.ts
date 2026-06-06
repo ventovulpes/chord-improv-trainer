@@ -1,9 +1,17 @@
-export type TestNoteEvent = {
+export type NoteInputEvent = {
   type: "noteOn" | "noteOff";
   note: number;
   velocity: number;
   timestampMs: number;
 };
+
+export type SustainInputEvent = {
+  type: "sustainChange";
+  isDown: boolean;
+  timestampMs: number;
+};
+
+export type AppInputEvent = NoteInputEvent | SustainInputEvent;
 
 export const PITCH_CLASS_NAMES = [
   "C",

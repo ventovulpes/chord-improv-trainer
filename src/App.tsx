@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer } from "react";
+import { useCallback, useEffect, useMemo, useReducer } from "react";
 import {
   DEFAULT_RECENT_WINDOW_MS,
   applyNoteEvent,
@@ -9,8 +9,10 @@ import {
 import {
   noteName,
   pitchClassName,
-  type TestNoteEvent,
+  type AppInputEvent,
+  type NoteInputEvent,
 } from "./domain/noteEvents";
+import { useMidiInputs } from "./useMidiInputs";
 
 const INPUT_NOTES = [
   { note: 60, key: "a" },
@@ -24,7 +26,7 @@ const INPUT_NOTES = [
 ];
 
 type AppAction =
-  | { type: "event"; event: TestNoteEvent }
+  | { type: "event"; event: AppInputEvent }
   | { type: "reset" };
 
 function reducer(state: NoteState, action: AppAction): NoteState {
@@ -40,6 +42,10 @@ export default function App() {
   const [noteState, dispatch] = useReducer(reducer, undefined, () =>
     createInitialNoteState(),
   );
+  const handleMidiInputEvent = useCallback((event: AppInputEvent) => {
+    dispatch({ type: "event", event });
+  }, []);
+  const midi = useMidiInputs(handleMidiInputEvent);
 
   useEffect(() => {
     const notesByKey = new Map(
@@ -86,7 +92,7 @@ export default function App() {
     [noteState.activeNotes],
   );
 
-  function sendEvent(type: TestNoteEvent["type"], note: number) {
+  function sendEvent(type: NoteInputEvent["type"], note: number) {
     dispatch({
       type: "event",
       event: createUiNoteEvent(type, note),
@@ -118,8 +124,60 @@ export default function App() {
         <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
           <Panel title="MIDI / Input Status">
             <div className="flex flex-col gap-4">
-              <StatusRow label="Input source" value="Simulated notes" />
-              <StatusRow label="Hardware MIDI" value="Not connected in Phase 1" />
+              <div className="grid gap-2 sm:grid-cols-2">
+                <StatusRow
+                  label="Hardware MIDI"
+                  value={midiStatusLabel(midi.status)}
+                />
+                <StatusRow
+                  label="Selected input"
+                  value={midi.selectedInput?.name ?? "None"}
+                />
+              </div>
+              {midi.errorMessage ? (
+                <p className="rounded-md border border-[#e0b4b4] bg-[#fff8f8] px-3 py-2 text-sm text-[#8a2d2d]">
+                  {midi.errorMessage}
+                </p>
+              ) : null}
+              <div className="grid gap-2 sm:grid-cols-[auto_1fr]">
+                <button
+                  className="inline-flex w-fit items-center rounded-md bg-[#172033] px-4 py-2 text-sm font-semibold text-white hover:bg-[#2c3b56] disabled:cursor-not-allowed disabled:bg-[#8b96a8]"
+                  type="button"
+                  onClick={midi.requestAccess}
+                  disabled={
+                    midi.status === "unsupported" || midi.status === "requesting"
+                  }
+                >
+                  {midi.status === "requesting" ? "Connecting..." : "Connect MIDI"}
+                </button>
+                <label className="flex min-w-0 flex-col gap-1 text-sm font-medium text-[#5b6b82]">
+                  MIDI input
+                  <select
+                    className="min-w-0 rounded-md border border-[#cbd3df] bg-white px-3 py-2 text-[#172033] disabled:bg-[#eef2f7]"
+                    value={midi.selectedInputId ?? ""}
+                    onChange={(event) =>
+                      midi.selectInput(event.currentTarget.value || null)
+                    }
+                    disabled={midi.inputs.length === 0}
+                  >
+                    {midi.inputs.length === 0 ? (
+                      <option value="">No MIDI inputs</option>
+                    ) : null}
+                    {midi.inputs.map((input) => (
+                      <option key={input.id} value={input.id}>
+                        {input.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <StatusRow label="Input fallback" value="Simulated notes" />
+                <StatusRow
+                  label="Sustain pedal"
+                  value={noteState.isSustainDown ? "Down" : "Up"}
+                />
+              </div>
               <StatusRow
                 label="Recent window"
                 value={`${DEFAULT_RECENT_WINDOW_MS}ms`}
@@ -170,6 +228,14 @@ export default function App() {
           </Panel>
         </section>
 
+        <Panel title="Detected Chord">
+          <EmptyText>Chord detection starts in Phase 3</EmptyText>
+        </Panel>
+
+        <Panel title="Suggestions">
+          <EmptyText>Harmony suggestions start in Phase 4</EmptyText>
+        </Panel>
+
         <section className="grid gap-4 lg:grid-cols-3">
           <Panel title="Recent Notes">
             {recentEvents.length === 0 ? (
@@ -201,23 +267,36 @@ export default function App() {
             )}
           </Panel>
 
-          <Panel title="Detected Chord">
-            <EmptyText>Chord detection starts in Phase 3</EmptyText>
+          <Panel title="Bass / Melody Evidence">
+            <div className="flex flex-col gap-2">
+              <StatusRow
+                label="Likely bass"
+                value={
+                  noteState.likelyBassNote === null
+                    ? "None"
+                    : noteName(noteState.likelyBassNote)
+                }
+              />
+              <StatusRow
+                label="Likely melody"
+                value={
+                  noteState.likelyMelodyNote === null
+                    ? "None"
+                    : noteName(noteState.likelyMelodyNote)
+                }
+              />
+            </div>
           </Panel>
         </section>
-
-        <Panel title="Suggestions">
-          <EmptyText>Harmony suggestions start in Phase 4</EmptyText>
-        </Panel>
       </div>
     </main>
   );
 }
 
 function createUiNoteEvent(
-  type: TestNoteEvent["type"],
+  type: NoteInputEvent["type"],
   note: number,
-): TestNoteEvent {
+): NoteInputEvent {
   return {
     type,
     note,
@@ -250,6 +329,23 @@ function StatusRow({ label, value }: { label: string; value: string }) {
       <span className="font-medium">{value}</span>
     </div>
   );
+}
+
+function midiStatusLabel(status: ReturnType<typeof useMidiInputs>["status"]) {
+  switch (status) {
+    case "unsupported":
+      return "Unsupported";
+    case "idle":
+      return "Not connected";
+    case "requesting":
+      return "Requesting access";
+    case "ready":
+      return "Ready";
+    case "denied":
+      return "Permission denied";
+    case "error":
+      return "Error";
+  }
 }
 
 function Badge({ children }: { children: React.ReactNode }) {

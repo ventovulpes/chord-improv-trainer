@@ -4,10 +4,10 @@ import {
   type NoteState,
   type NoteStateOptions,
 } from "./noteState";
-import type { TestNoteEvent } from "./noteEvents";
+import type { AppInputEvent } from "./noteEvents";
 
 export function replayNoteEvents(
-  events: TestNoteEvent[],
+  events: AppInputEvent[],
   options: NoteStateOptions = {},
   initialState: NoteState = createInitialNoteState(),
 ): NoteState {
