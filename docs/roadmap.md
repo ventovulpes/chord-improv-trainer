@@ -196,11 +196,8 @@ Chord tones: E G# B D
 C major generates E7 → Am
 C major generates D7 → G
 play C E G → detect C → show secondary dominant suggestion
-target E7, play E G# B D together → correct
-target E7, play E G# B D arpeggiated → correct
-target E7, play E B D → missing G#
-target E7, play A C E → wrong chord
 ```
+write other tests
 
 ### Success Criteria
 
@@ -208,7 +205,6 @@ target E7, play A C E → wrong chord
 * App detects it.
 * App suggests a next chord.
 * User can practice the suggestion.
-* App grades the attempt.
 * This is the first true MVP loop.
 
 ---

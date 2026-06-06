@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useReducer } from "react";
 import {
+  detectChordFromNoteState,
+  type ChordCandidate,
+} from "./domain/chordDetection";
+import {
   DEFAULT_RECENT_WINDOW_MS,
   applyNoteEvent,
   createInitialNoteState,
@@ -90,6 +94,10 @@ export default function App() {
   const activeNoteNumbers = useMemo(
     () => new Set(noteState.activeNotes.map((activeNote) => activeNote.note)),
     [noteState.activeNotes],
+  );
+  const chordDetection = useMemo(
+    () => detectChordFromNoteState(noteState),
+    [noteState],
   );
 
   function sendEvent(type: NoteInputEvent["type"], note: number) {
@@ -229,7 +237,49 @@ export default function App() {
         </section>
 
         <Panel title="Detected Chord">
-          <EmptyText>Chord detection starts in Phase 3</EmptyText>
+          {chordDetection.best ? (
+            <div className="flex flex-col gap-4">
+              <div className="grid gap-2 sm:grid-cols-3">
+                <StatusRow
+                  label="Chord"
+                  value={chordDetection.best.symbol}
+                />
+                <StatusRow
+                  label="Quality"
+                  value={qualityLabel(chordDetection.best.quality)}
+                />
+                <StatusRow
+                  label="Confidence"
+                  value={confidenceLabel(chordDetection.best.confidence)}
+                />
+              </div>
+              <div>
+                <h3 className="mb-2 text-sm font-semibold text-[#5b6b82]">
+                  Matched pitch classes
+                </h3>
+                <PitchClassBadges
+                  pitchClasses={chordDetection.best.matchedPitchClasses}
+                />
+              </div>
+              {chordDetection.alternatives.length > 0 ? (
+                <div>
+                  <h3 className="mb-2 text-sm font-semibold text-[#5b6b82]">
+                    Alternatives
+                  </h3>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    {chordDetection.alternatives.map((candidate) => (
+                      <CandidateSummary
+                        candidate={candidate}
+                        key={candidate.symbol}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <EmptyText>No confident chord detected</EmptyText>
+          )}
         </Panel>
 
         <Panel title="Suggestions">
@@ -331,6 +381,40 @@ function StatusRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function CandidateSummary({ candidate }: { candidate: ChordCandidate }) {
+  return (
+    <div className="rounded-md border border-[#d7dce5] bg-white px-3 py-2 text-sm">
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-semibold">{candidate.symbol}</span>
+        <span className="text-[#5b6b82]">
+          {confidenceLabel(candidate.confidence)}
+        </span>
+      </div>
+      <div className="mt-2">
+        <PitchClassBadges pitchClasses={candidate.matchedPitchClasses} compact />
+      </div>
+    </div>
+  );
+}
+
+function PitchClassBadges({
+  pitchClasses,
+  compact = false,
+}: {
+  pitchClasses: number[];
+  compact?: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {pitchClasses.map((pitchClass) => (
+        <Badge compact={compact} key={pitchClass}>
+          {pitchClassName(pitchClass)}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
 function midiStatusLabel(status: ReturnType<typeof useMidiInputs>["status"]) {
   switch (status) {
     case "unsupported":
@@ -348,9 +432,19 @@ function midiStatusLabel(status: ReturnType<typeof useMidiInputs>["status"]) {
   }
 }
 
-function Badge({ children }: { children: React.ReactNode }) {
+function Badge({
+  children,
+  compact = false,
+}: {
+  children: React.ReactNode;
+  compact?: boolean;
+}) {
   return (
-    <span className="rounded-md border border-[#b8c2d1] bg-white px-3 py-2 text-sm font-semibold">
+    <span
+      className={`rounded-md border border-[#b8c2d1] bg-white text-sm font-semibold ${
+        compact ? "px-2 py-1" : "px-3 py-2"
+      }`}
+    >
       {children}
     </span>
   );
@@ -358,4 +452,12 @@ function Badge({ children }: { children: React.ReactNode }) {
 
 function EmptyText({ children }: { children: React.ReactNode }) {
   return <p className="text-sm text-[#5b6b82]">{children}</p>;
+}
+
+function qualityLabel(quality: ChordCandidate["quality"]): string {
+  return quality === "minor" ? "Minor" : "Major";
+}
+
+function confidenceLabel(confidence: number): string {
+  return `${Math.round(confidence * 100)}%`;
 }
