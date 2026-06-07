@@ -1,11 +1,17 @@
 import {
   pitchClass,
-  pitchClassName,
   type NoteInputEvent,
 } from "./noteEvents";
 import type { NoteState } from "./noteState";
+import {
+  CHORD_TEMPLATES,
+  areChordsEquivalent,
+  chordSymbol,
+  chordTonePitchClasses,
+  type ChordQuality,
+} from "./chordTheory";
 
-export type ChordQuality = "major" | "minor";
+export type { ChordQuality } from "./chordTheory";
 
 export type ChordCandidate = {
   root: number;
@@ -23,19 +29,10 @@ export type ChordDetectionResult = {
 
 export type ChordDetectionOptions = {
   keyRoot?: number;
-};
-
-type ChordTemplate = {
-  quality: ChordQuality;
-  intervals: number[];
+  previousChord?: ChordCandidate | null;
 };
 
 const DEFAULT_KEY_ROOT = 0;
-const CHORD_TEMPLATES: ChordTemplate[] = [
-  { quality: "major", intervals: [0, 4, 7] },
-  { quality: "minor", intervals: [0, 3, 7] },
-];
-
 const MAJOR_SCALE_DIATONIC_QUALITIES = new Map<number, ChordQuality>([
   [0, "major"],
   [2, "minor"],
@@ -50,6 +47,7 @@ const MIN_CONFIDENCE = 0.8;
 const PERFECT_FIFTH_CONFIDENCE = 0.66;
 const ALTERNATIVE_CONFIDENCE_FLOOR = 0.65;
 const ALTERNATIVE_CONFIDENCE_GAP = 0.25;
+const PREVIOUS_CHORD_STABILITY_GAP = 0.2;
 
 export function detectChordFromNoteState(
   noteState: NoteState,
@@ -86,7 +84,7 @@ export function detectChordFromEvents(
   }
 
   const candidates = scoreChordCandidates(evidencePitchClasses, preferredRoot);
-  const best = candidates[0] ?? null;
+  const best = chooseBestCandidate(candidates, options.previousChord);
 
   if (!best || best.confidence < MIN_CONFIDENCE) {
     return {
@@ -108,21 +106,6 @@ export function detectChordFromEvents(
       )
       .slice(0, 3),
   };
-}
-
-export function chordTonePitchClasses(
-  root: number,
-  quality: ChordQuality,
-): number[] {
-  const template = CHORD_TEMPLATES.find(
-    (candidate) => candidate.quality === quality,
-  );
-
-  if (!template) {
-    return [];
-  }
-
-  return template.intervals.map((interval) => pitchClass(root + interval));
 }
 
 function collectEvidencePitchClasses(events: NoteInputEvent[]): number[] {
@@ -159,7 +142,7 @@ function scoreChordCandidates(
         (tone) => !chordTones.includes(tone),
       ).length;
       const completeness = matchedPitchClasses.length / chordTones.length;
-      const extraPenalty = extraPitchClassCount * 0.18;
+      const extraPenalty = extraPitchClassCount * 0.16;
       const confidence = clamp(completeness - extraPenalty, 0, 1);
 
       candidates.push({
@@ -197,6 +180,31 @@ function scoreChordCandidates(
 
     return a.symbol.localeCompare(b.symbol);
   });
+}
+
+function chooseBestCandidate(
+  candidates: ChordCandidate[],
+  previousChord: ChordCandidate | null | undefined,
+): ChordCandidate | null {
+  const leadingCandidate = candidates[0] ?? null;
+
+  if (!leadingCandidate || !previousChord) {
+    return leadingCandidate;
+  }
+
+  const previousCandidate = candidates.find(
+    (candidate) => areChordsEquivalent(candidate, previousChord),
+  );
+
+  if (
+    previousCandidate &&
+    leadingCandidate.confidence - previousCandidate.confidence <=
+      PREVIOUS_CHORD_STABILITY_GAP
+  ) {
+    return previousCandidate;
+  }
+
+  return leadingCandidate;
 }
 
 function inferPerfectFifthCandidate(
@@ -273,12 +281,6 @@ function diatonicTriadQuality(
   const scaleDegree = pitchClass(root - keyRoot);
 
   return MAJOR_SCALE_DIATONIC_QUALITIES.get(scaleDegree) ?? null;
-}
-
-function chordSymbol(root: number, quality: ChordQuality): string {
-  const rootName = pitchClassName(root);
-
-  return quality === "minor" ? `${rootName}m` : rootName;
 }
 
 function clamp(value: number, min: number, max: number): number {

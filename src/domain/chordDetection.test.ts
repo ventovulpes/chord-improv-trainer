@@ -139,14 +139,127 @@ describe("chord detection", () => {
       ]),
     );
 
-    expect(detection.best?.symbol).toBe("C");
-    expect(detection.best?.confidence).toBeLessThan(1);
+    expect(detection.best?.symbol).toBe("Am7");
+    expect(detection.best?.confidence).toBe(1);
     expect(detection.alternatives.map((candidate) => candidate.symbol)).toContain(
-      "Am",
+      "C",
     );
+  });
+
+  it("detects Phase 5 chord qualities", () => {
+    expect(
+      detectChordFromNoteState(
+        replayNoteEvents([
+          noteOn(64, 0),
+          noteOn(68, 100),
+          noteOn(71, 200),
+          noteOn(74, 300),
+        ]),
+      ).best?.symbol,
+    ).toBe("E7");
+    expect(
+      detectChordFromNoteState(
+        replayNoteEvents([
+          noteOn(60, 0),
+          noteOn(64, 100),
+          noteOn(67, 200),
+          noteOn(71, 300),
+        ]),
+      ).best?.symbol,
+    ).toBe("Cmaj7");
+    expect(
+      detectChordFromNoteState(
+        replayNoteEvents([
+          noteOn(71, 0),
+          noteOn(74, 100),
+          noteOn(77, 200),
+          noteOn(81, 300),
+        ]),
+      ).best?.symbol,
+    ).toBe("Bm7b5");
+    expect(
+      detectChordFromNoteState(
+        replayNoteEvents([noteOn(60, 0), noteOn(65, 100), noteOn(67, 200)]),
+      ).best?.symbol,
+    ).toBe("Csus4");
+    expect(
+      detectChordFromNoteState(
+        replayNoteEvents([noteOn(60, 0), noteOn(62, 100), noteOn(67, 200)]),
+      ).best?.symbol,
+    ).toBe("Csus2");
+    expect(
+      detectChordFromNoteState(
+        replayNoteEvents([noteOn(60, 0), noteOn(63, 100), noteOn(66, 200)]),
+      ).best?.symbol,
+    ).toBe("Cdim");
+    expect(
+      detectChordFromNoteState(
+        replayNoteEvents([noteOn(60, 0), noteOn(64, 100), noteOn(68, 200)]),
+      ).best?.symbol,
+    ).toBe("Caug");
+    expect(
+      detectChordFromNoteState(
+        replayNoteEvents([
+          noteOn(60, 0),
+          noteOn(63, 100),
+          noteOn(66, 200),
+          noteOn(69, 300),
+        ]),
+      ).best?.symbol,
+    ).toBe("Cdim7");
+  });
+
+  it("prefers the previous chord when passing-tone evidence is close", () => {
+    const cMajor = detectedChordCandidate("C", 0, "major");
+    const detection = detectChordFromNoteState(
+      replayNoteEvents([
+        noteOn(60, 0),
+        noteOn(64, 100),
+        noteOn(67, 200),
+        noteOn(69, 300),
+        noteOn(67, 400),
+        noteOn(64, 500),
+      ]),
+      { previousChord: cMajor },
+    );
+
+    expect(detection.best?.symbol).toBe("C");
+  });
+
+  it("switches from the previous chord when new chord evidence is strong", () => {
+    const cMajor = detectedChordCandidate("C", 0, "major");
+    const detection = detectChordFromNoteState(
+      replayNoteEvents([
+        noteOn(69, 0),
+        noteOn(72, 100),
+        noteOn(76, 200),
+        noteOn(72, 300),
+        noteOn(76, 400),
+      ]),
+      { previousChord: cMajor },
+    );
+
+    expect(detection.best?.symbol).toBe("Am");
   });
 });
 
 function noteOn(note: number, timestampMs: number): NoteInputEvent {
   return { type: "noteOn", note, velocity: 100, timestampMs };
+}
+
+function detectedChordCandidate(
+  symbol: string,
+  root: number,
+  quality: NonNullable<
+    ReturnType<typeof detectChordFromNoteState>["best"]
+  >["quality"],
+): NonNullable<ReturnType<typeof detectChordFromNoteState>["best"]> {
+  return {
+    root,
+    quality,
+    symbol,
+    confidence: 1,
+    matchedPitchClasses: [],
+    missingPitchClasses: [],
+  };
 }

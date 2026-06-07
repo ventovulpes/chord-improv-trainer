@@ -240,13 +240,6 @@ tritone substitution
 diminished passing chords
 ```
 
-Add harmonic stability:
-
-* Prefer previous chord when scores are close.
-* Require stronger evidence to switch chords.
-* Tolerate passing tones.
-* Display low-confidence states.
-
 ### Tests
 
 ```txt

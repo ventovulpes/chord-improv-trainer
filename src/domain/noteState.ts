@@ -1,6 +1,6 @@
 import { pitchClass, type AppInputEvent, type NoteInputEvent } from "./noteEvents";
 
-export const DEFAULT_RECENT_WINDOW_MS = 2000;
+export const DEFAULT_RECENT_WINDOW_MS = 1000;
 
 export type ActiveNote = {
   note: number;

@@ -9,7 +9,7 @@ import { replayNoteEvents } from "./replay";
 import type { AppInputEvent, NoteInputEvent } from "./noteEvents";
 
 describe("note state", () => {
-  it("press C -> active notes include C", () => {
+  it("press C → active notes include C", () => {
     const state = applyNoteEvent(createInitialNoteState(), noteOn(60, 0));
 
     expect(state.activeNotes).toEqual([
@@ -17,14 +17,14 @@ describe("note state", () => {
     ]);
   });
 
-  it("release C -> active notes remove C", () => {
+  it("release C → active notes remove C", () => {
     const pressed = applyNoteEvent(createInitialNoteState(), noteOn(60, 0));
     const released = applyNoteEvent(pressed, noteOff(60, 100));
 
     expect(released.activeNotes).toEqual([]);
   });
 
-  it("play C E G -> recent pitch classes include C E G", () => {
+  it("play C E G → recent pitch classes include C E G", () => {
     const state = replayNoteEvents([
       noteOn(60, 0),
       noteOn(64, 100),

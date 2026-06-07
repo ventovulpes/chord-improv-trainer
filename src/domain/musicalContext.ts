@@ -7,6 +7,7 @@ import {
   suggestNextChords,
   type ChordSuggestion,
 } from "./harmonySuggestions";
+import { areChordsEquivalent } from "./chordTheory";
 import type { NoteState } from "./noteState";
 
 export const DEFAULT_KEY_ROOT = 0;
@@ -51,20 +52,62 @@ export function updateMusicalContext(
   options: MusicalContextOptions = {},
 ): MusicalContext {
   const keyRoot = options.keyRoot ?? context.keyRoot;
-  const chordDetection = detectChordFromNoteState(noteState, { keyRoot });
-  const chordSuggestions = suggestNextChords(chordDetection.best, {
+  const previousChord = context.chordHistory[context.chordHistory.length - 1];
+  const stableChordDetection = detectChordFromNoteState(noteState, {
+    keyRoot,
+    previousChord,
+  });
+  const chordSuggestions = suggestNextChords(stableChordDetection.best, {
+    chordHistory: context.chordHistory,
     keyRoot,
   });
+  const visibleSuggestions = chooseVisibleSuggestions(
+    context,
+    stableChordDetection.best,
+    chordSuggestions,
+    keyRoot,
+  );
 
   return {
     keyRoot,
-    chordDetection,
-    chordHistory: appendDetectedChord(context.chordHistory, chordDetection.best),
-    visibleSuggestions:
-      chordSuggestions.length > 0
-        ? chordSuggestions
-        : context.visibleSuggestions,
+    chordDetection: stableChordDetection,
+    chordHistory: appendDetectedChord(
+      context.chordHistory,
+      stableChordDetection.best,
+    ),
+    visibleSuggestions,
   };
+}
+
+function chooseVisibleSuggestions(
+  context: MusicalContext,
+  detectedChord: ChordCandidate | null,
+  chordSuggestions: ChordSuggestion[],
+  keyRoot: number,
+): ChordSuggestion[] {
+  if (chordSuggestions.length === 0) {
+    return context.visibleSuggestions;
+  }
+
+  if (keyRoot !== context.keyRoot) {
+    return chordSuggestions;
+  }
+
+  const lastKnownChord =
+    context.chordDetection.best ??
+    context.chordHistory[context.chordHistory.length - 1] ??
+    null;
+
+  if (
+    detectedChord &&
+    lastKnownChord &&
+    areChordsEquivalent(lastKnownChord, detectedChord) &&
+    context.visibleSuggestions.length > 0
+  ) {
+    return context.visibleSuggestions;
+  }
+
+  return chordSuggestions;
 }
 
 function appendDetectedChord(
@@ -79,8 +122,7 @@ function appendDetectedChord(
 
   if (
     lastPlayedChord &&
-    lastPlayedChord.root === detectedChord.root &&
-    lastPlayedChord.quality === detectedChord.quality
+    areChordsEquivalent(lastPlayedChord, detectedChord)
   ) {
     return chordHistory;
   }

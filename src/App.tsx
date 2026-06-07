@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import type { ChordCandidate } from "./domain/chordDetection";
 import type { ChordSuggestion } from "./domain/harmonySuggestions";
 import {
@@ -59,6 +59,7 @@ type SuggestionLimit = (typeof SUGGESTION_LIMIT_OPTIONS)[number]["value"];
 type AppState = {
   noteState: NoteState;
   musicalContext: MusicalContext;
+  recentWindowMs: number;
   suggestionLimit: SuggestionLimit;
 };
 
@@ -66,12 +67,14 @@ type AppAction =
   | { type: "event"; event: AppInputEvent }
   | { type: "reset" }
   | { type: "setKeyRoot"; keyRoot: number }
+  | { type: "setRecentWindowMs"; recentWindowMs: number }
   | { type: "setSuggestionLimit"; suggestionLimit: SuggestionLimit };
 
 function createInitialAppState(): AppState {
   return {
     noteState: createInitialNoteState(),
     musicalContext: createInitialMusicalContext(),
+    recentWindowMs: DEFAULT_RECENT_WINDOW_MS,
     suggestionLimit: "3",
   };
 }
@@ -79,7 +82,9 @@ function createInitialAppState(): AppState {
 function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case "event": {
-      const noteState = applyNoteEvent(state.noteState, action.event);
+      const noteState = applyNoteEvent(state.noteState, action.event, {
+        recentWindowMs: state.recentWindowMs,
+      });
 
       return {
         noteState,
@@ -87,6 +92,7 @@ function reducer(state: AppState, action: AppAction): AppState {
           state.musicalContext,
           noteState,
         ),
+        recentWindowMs: state.recentWindowMs,
         suggestionLimit: state.suggestionLimit,
       };
     }
@@ -96,6 +102,7 @@ function reducer(state: AppState, action: AppAction): AppState {
         musicalContext: resetMusicalContext({
           keyRoot: state.musicalContext.keyRoot,
         }),
+        recentWindowMs: state.recentWindowMs,
         suggestionLimit: state.suggestionLimit,
       };
     }
@@ -107,7 +114,14 @@ function reducer(state: AppState, action: AppAction): AppState {
           state.noteState,
           { keyRoot: action.keyRoot },
         ),
+        recentWindowMs: state.recentWindowMs,
         suggestionLimit: state.suggestionLimit,
+      };
+    }
+    case "setRecentWindowMs": {
+      return {
+        ...state,
+        recentWindowMs: action.recentWindowMs,
       };
     }
     case "setSuggestionLimit": {
@@ -123,7 +137,8 @@ export default function App() {
   const [state, dispatch] = useReducer(reducer, undefined, () =>
     createInitialAppState(),
   );
-  const { noteState, musicalContext, suggestionLimit } = state;
+  const [isInputPanelsCollapsed, setIsInputPanelsCollapsed] = useState(false);
+  const { noteState, musicalContext, recentWindowMs, suggestionLimit } = state;
   const handleMidiInputEvent = useCallback((event: AppInputEvent) => {
     dispatch({ type: "event", event });
   }, []);
@@ -196,6 +211,17 @@ export default function App() {
     dispatch({ type: "reset" });
   }
 
+  function setRecentWindowMs(value: string) {
+    const nextRecentWindowMs = Number(value);
+
+    if (Number.isFinite(nextRecentWindowMs) && nextRecentWindowMs > 0) {
+      dispatch({
+        type: "setRecentWindowMs",
+        recentWindowMs: Math.floor(nextRecentWindowMs),
+      });
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f6f7f9] px-4 py-6 text-[#172033] sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
@@ -226,121 +252,140 @@ export default function App() {
               </select>
             </label>
             <button
+              className="inline-flex w-fit items-center rounded-md border border-[#cbd3df] bg-white px-3 py-2 text-sm font-semibold text-[#172033] hover:bg-[#eef2f7]"
+              type="button"
+              aria-expanded={!isInputPanelsCollapsed}
+              onClick={() =>
+                setIsInputPanelsCollapsed((isCollapsed) => !isCollapsed)
+              }
+            >
+              {isInputPanelsCollapsed ? "Show input panels" : "Hide input panels"}
+            </button>
+            <button
               className="inline-flex w-fit items-center rounded-md bg-[#172033] px-4 py-2 text-sm font-semibold text-white hover:bg-[#2c3b56]"
               type="button"
               onClick={resetApp}
             >
-              Reset
+              Reset MIDI
             </button>
           </div>
         </header>
 
-        <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-          <Panel title="MIDI / Input Status">
-            <div className="flex flex-col gap-4">
-              <div className="grid gap-2 sm:grid-cols-2">
-                <StatusRow
-                  label="Hardware MIDI"
-                  value={midiStatusLabel(midi.status)}
-                />
-                <StatusRow
-                  label="Selected input"
-                  value={midi.selectedInput?.name ?? "None"}
-                />
-              </div>
-              {midi.errorMessage ? (
-                <p className="rounded-md border border-[#e0b4b4] bg-[#fff8f8] px-3 py-2 text-sm text-[#8a2d2d]">
-                  {midi.errorMessage}
-                </p>
-              ) : null}
-              <div className="grid gap-2 sm:grid-cols-[auto_1fr]">
-                <button
-                  className="inline-flex w-fit items-center rounded-md bg-[#172033] px-4 py-2 text-sm font-semibold text-white hover:bg-[#2c3b56] disabled:cursor-not-allowed disabled:bg-[#8b96a8]"
-                  type="button"
-                  onClick={midi.requestAccess}
-                  disabled={
-                    midi.status === "unsupported" || midi.status === "requesting"
-                  }
-                >
-                  {midi.status === "requesting" ? "Connecting..." : "Connect MIDI"}
-                </button>
-                <label className="flex min-w-0 flex-col gap-1 text-sm font-medium text-[#5b6b82]">
-                  MIDI input
-                  <select
-                    className="min-w-0 rounded-md border border-[#cbd3df] bg-white px-3 py-2 text-[#172033] disabled:bg-[#eef2f7]"
-                    value={midi.selectedInputId ?? ""}
-                    onChange={(event) =>
-                      midi.selectInput(event.currentTarget.value || null)
+        {isInputPanelsCollapsed ? null : (
+          <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+            <Panel title="MIDI / Input Status">
+              <div className="flex flex-col gap-4">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <StatusRow
+                    label="Hardware MIDI"
+                    value={midiStatusLabel(midi.status)}
+                  />
+                  <StatusRow
+                    label="Selected input"
+                    value={midi.selectedInput?.name ?? "None"}
+                  />
+                </div>
+                {midi.errorMessage ? (
+                  <p className="rounded-md border border-[#e0b4b4] bg-[#fff8f8] px-3 py-2 text-sm text-[#8a2d2d]">
+                    {midi.errorMessage}
+                  </p>
+                ) : null}
+                <div className="grid gap-2 sm:grid-cols-[auto_1fr]">
+                  <button
+                    className="inline-flex w-fit items-center rounded-md bg-[#172033] px-4 py-2 text-sm font-semibold text-white hover:bg-[#2c3b56] disabled:cursor-not-allowed disabled:bg-[#8b96a8]"
+                    type="button"
+                    onClick={midi.requestAccess}
+                    disabled={
+                      midi.status === "unsupported" ||
+                      midi.status === "requesting"
                     }
-                    disabled={midi.inputs.length === 0}
                   >
-                    {midi.inputs.length === 0 ? (
-                      <option value="">No MIDI inputs</option>
-                    ) : null}
-                    {midi.inputs.map((input) => (
-                      <option key={input.id} value={input.id}>
-                        {input.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <StatusRow label="Input fallback" value="Simulated notes" />
-                <StatusRow
-                  label="Sustain pedal"
-                  value={noteState.isSustainDown ? "Down" : "Up"}
-                />
-              </div>
-              <StatusRow
-                label="Recent window"
-                value={`${DEFAULT_RECENT_WINDOW_MS}ms`}
-              />
-              <StatusRow
-                label="Tracked events"
-                value={String(noteState.recentEvents.length)}
-              />
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {INPUT_NOTES.map(({ note, key }) => (
-                  <div
-                    className="overflow-hidden rounded-md border border-[#cbd3df] bg-white"
-                    key={note}
-                  >
-                    <button
-                      className={`block w-full border-b border-[#cbd3df] px-3 py-3 text-center text-sm font-semibold ${
-                        activeNoteNumbers.has(note)
-                          ? "bg-[#172033] text-white hover:bg-[#2c3b56]"
-                          : "hover:bg-[#eef2f7]"
-                      }`}
-                      type="button"
-                      aria-pressed={activeNoteNumbers.has(note)}
-                      onClick={() => toggleNote(note)}
+                    {midi.status === "requesting"
+                      ? "Connecting..."
+                      : "Connect MIDI"}
+                  </button>
+                  <label className="flex min-w-0 flex-col gap-1 text-sm font-medium text-[#5b6b82]">
+                    MIDI input
+                    <select
+                      className="min-w-0 rounded-md border border-[#cbd3df] bg-white px-3 py-2 text-[#172033] disabled:bg-[#eef2f7]"
+                      value={midi.selectedInputId ?? ""}
+                      onChange={(event) =>
+                        midi.selectInput(event.currentTarget.value || null)
+                      }
+                      disabled={midi.inputs.length === 0}
                     >
-                      {noteName(note)} {activeNoteNumbers.has(note) ? "Off" : "On"}
-                    </button>
-                    <div className="border-t border-[#d7dce5] px-2 py-1 text-center text-xs font-medium text-[#5b6b82]">
-                      Key: {key === ";" ? ";" : key.toUpperCase()}
+                      {midi.inputs.length === 0 ? (
+                        <option value="">No MIDI inputs</option>
+                      ) : null}
+                      {midi.inputs.map((input) => (
+                        <option key={input.id} value={input.id}>
+                          {input.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="flex min-w-0 flex-col gap-1 text-sm font-medium text-[#5b6b82]">
+                    Recent window
+                    <input
+                      className="min-w-0 rounded-md border border-[#cbd3df] bg-white px-3 py-2 text-[#172033]"
+                      type="number"
+                      step={10}
+                      value={recentWindowMs}
+                      onChange={(event) =>
+                        setRecentWindowMs(event.currentTarget.value)
+                      }
+                    />
+                  </label>
+                  <StatusRow
+                    label="Tracked events"
+                    value={String(noteState.recentEvents.length)}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {INPUT_NOTES.map(({ note, key }) => (
+                    <div
+                      className="overflow-hidden rounded-md border border-[#cbd3df] bg-white"
+                      key={note}
+                    >
+                      <button
+                        className={`block w-full border-b border-[#cbd3df] px-3 py-3 text-center text-sm font-semibold ${
+                          activeNoteNumbers.has(note)
+                            ? "bg-[#172033] text-white hover:bg-[#2c3b56]"
+                            : "hover:bg-[#eef2f7]"
+                        }`}
+                        type="button"
+                        aria-pressed={activeNoteNumbers.has(note)}
+                        onClick={() => toggleNote(note)}
+                      >
+                        {noteName(note)}{" "}
+                        {activeNoteNumbers.has(note) ? "Off" : "On"}
+                      </button>
+                      <div className="border-t border-[#d7dce5] px-2 py-1 text-center text-xs font-medium text-[#5b6b82]">
+                        Key: {key === ";" ? ";" : key.toUpperCase()}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          </Panel>
+            </Panel>
 
-          <Panel title="Active Notes">
-            {noteState.activeNotes.length === 0 ? (
-              <EmptyText>No active notes</EmptyText>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {noteState.activeNotes.map((activeNote) => (
-                  <Badge key={activeNote.note}>
-                    {noteName(activeNote.note)} · {activeNote.velocity}
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </Panel>
-        </section>
+            <Panel title="Active Notes">
+              {noteState.activeNotes.length === 0 ? (
+                <EmptyText>No active notes</EmptyText>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {noteState.activeNotes.map((activeNote) => (
+                    <Badge key={activeNote.note}>
+                      {noteName(activeNote.note)} · {activeNote.velocity}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </Panel>
+          </section>
+        )}
 
         <Panel title="Suggestions">
           <div className="flex flex-col gap-2">
@@ -633,7 +678,30 @@ function EmptyText({ children }: { children: React.ReactNode }) {
 }
 
 function qualityLabel(quality: ChordCandidate["quality"]): string {
-  return quality === "minor" ? "Minor" : "Major";
+  switch (quality) {
+    case "major":
+      return "Major";
+    case "minor":
+      return "Minor";
+    case "diminished":
+      return "Diminished";
+    case "augmented":
+      return "Augmented";
+    case "dominant7":
+      return "Dominant 7";
+    case "major7":
+      return "Major 7";
+    case "minor7":
+      return "Minor 7";
+    case "halfDiminished7":
+      return "Half-diminished 7";
+    case "diminished7":
+      return "Diminished 7";
+    case "sus2":
+      return "Sus2";
+    case "sus4":
+      return "Sus4";
+  }
 }
 
 function confidenceLabel(confidence: number): string {
