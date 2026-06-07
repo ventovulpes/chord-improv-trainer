@@ -121,6 +121,44 @@ describe("musical context", () => {
     );
   });
 
+  it("passes selected concept into visible suggestions", () => {
+    const initialContext = createInitialMusicalContext();
+    const context = updateMusicalContext(
+      initialContext,
+      replayNoteEvents([noteOn(60, 0), noteOn(64, 100), noteOn(67, 200)]),
+      {
+        selectedConcept: "secondaryDominant",
+      },
+    );
+
+    expect(context.selectedConcept).toBe("secondaryDominant");
+    expect(context.visibleSuggestions[0]).toEqual(
+      expect.objectContaining({
+        concept: "secondaryDominant",
+      }),
+    );
+  });
+
+  it("refreshes visible suggestions when the selected concept changes", () => {
+    const initialContext = createInitialMusicalContext();
+    const cContext = updateMusicalContext(
+      initialContext,
+      replayNoteEvents([noteOn(60, 0), noteOn(64, 100), noteOn(67, 200)]),
+    );
+    const selectedConceptContext = updateMusicalContext(
+      cContext,
+      replayNoteEvents([noteOn(60, 0), noteOn(64, 100), noteOn(67, 200)]),
+      { selectedConcept: "tritoneSubstitution" },
+    );
+
+    expect(selectedConceptContext.visibleSuggestions).not.toEqual(
+      cContext.visibleSuggestions,
+    );
+    expect(selectedConceptContext.visibleSuggestions[0]?.concept).toBe(
+      "tritoneSubstitution",
+    );
+  });
+
   it("uses chord history to suggest the resolution of a previously suggested passing chord", () => {
     const initialContext = createInitialMusicalContext();
     const fContext = updateMusicalContext(

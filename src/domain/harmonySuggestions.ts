@@ -15,6 +15,8 @@ export type ChordConceptType =
   | "tritoneSubstitution"
   | "diminishedPassing";
 
+export type SelectedChordConcept = ChordConceptType | "automatic";
+
 export type ChordSuggestion = {
   id: string;
   root: number;
@@ -30,7 +32,8 @@ export type ChordSuggestion = {
 export type HarmonySuggestionOptions = {
   keyRoot?: number;
   chordHistory?: ChordCandidate[];
-  random?: () => number;
+  recentSuggestionIds?: string[];
+  selectedConcept?: SelectedChordConcept;
 };
 
 type MajorKeyDegree = {
@@ -64,6 +67,7 @@ type SuggestionDefinition = {
 };
 
 const DEFAULT_KEY_ROOT = 0;
+const DEFAULT_SELECTED_CONCEPT: SelectedChordConcept = "automatic";
 const MAJOR_KEY_TRIADS: MajorKeyDegree[] = [
   { offset: 0, quality: "major", romanNumeral: "I", priority: 5 },
   { offset: 2, quality: "minor", romanNumeral: "ii", priority: 2 },
@@ -116,7 +120,8 @@ export function suggestNextChords(
   }
 
   const keyRoot = options.keyRoot ?? DEFAULT_KEY_ROOT;
-  const random = options.random ?? Math.random;
+  const selectedConcept = options.selectedConcept ?? DEFAULT_SELECTED_CONCEPT;
+  const recentSuggestionIds = options.recentSuggestionIds ?? [];
   const historyResolution = createHistoryResolutionSuggestion(
     detectedChord,
     keyRoot,
@@ -135,21 +140,12 @@ export function suggestNextChords(
 
   const generatedSuggestions = createGeneratedSuggestions(detectedChord, keyRoot);
   const uniqueSuggestions = dedupeSuggestions(generatedSuggestions);
-  const nondiatonicSuggestions = uniqueSuggestions
-    .filter((entry) => entry.priorityGroup === "nondiatonic")
-    .map((entry) => entry.suggestion);
-  const modalMixtureSuggestions = uniqueSuggestions
-    .filter((entry) => entry.priorityGroup === "modalMixture")
-    .map((entry) => entry.suggestion);
-  const diatonicSuggestions = uniqueSuggestions
-    .filter((entry) => entry.priorityGroup === "diatonic")
-    .map((entry) => entry.suggestion);
 
-  return [
-    ...shuffleSuggestions(nondiatonicSuggestions, random),
-    ...shuffleSuggestions(modalMixtureSuggestions, random),
-    ...shuffleSuggestions(diatonicSuggestions, random),
-  ];
+  return rankSuggestions(uniqueSuggestions, {
+    chordHistory: options.chordHistory ?? [],
+    recentSuggestionIds,
+    selectedConcept,
+  });
 }
 
 function createGeneratedSuggestions(
@@ -452,6 +448,81 @@ function createSuggestion(definition: SuggestionDefinition): ChordSuggestion {
   };
 }
 
+function rankSuggestions(
+  suggestions: {
+    suggestion: ChordSuggestion;
+    priorityGroup: SuggestionPriorityGroup;
+  }[],
+  options: {
+    chordHistory: ChordCandidate[];
+    recentSuggestionIds: string[];
+    selectedConcept: SelectedChordConcept;
+  },
+): ChordSuggestion[] {
+  return suggestions
+    .map((entry, index) => ({ ...entry, index }))
+    .sort((a, b) => {
+      const aScore = suggestionRankScore(a, options);
+      const bScore = suggestionRankScore(b, options);
+
+      if (bScore !== aScore) {
+        return bScore - aScore;
+      }
+
+      return a.index - b.index;
+    })
+    .map((entry) => entry.suggestion);
+}
+
+function suggestionRankScore(
+  entry: {
+    suggestion: ChordSuggestion;
+    priorityGroup: SuggestionPriorityGroup;
+  },
+  options: {
+    chordHistory: ChordCandidate[];
+    recentSuggestionIds: string[];
+    selectedConcept: SelectedChordConcept;
+  },
+): number {
+  let score = priorityGroupScore(entry.priorityGroup);
+
+  if (
+    options.selectedConcept !== "automatic" &&
+    entry.suggestion.concept === options.selectedConcept
+  ) {
+    score += 100;
+  }
+
+  if (options.recentSuggestionIds.includes(entry.suggestion.id)) {
+    score -= 25;
+  }
+
+  if (wasRecentlyPlayed(entry.suggestion, options.chordHistory)) {
+    score -= 15;
+  }
+
+  return score;
+}
+
+function priorityGroupScore(priorityGroup: SuggestionPriorityGroup): number {
+  switch (priorityGroup) {
+    case "nondiatonic":
+      return 30;
+    case "modalMixture":
+      return 20;
+    case "diatonic":
+      return 10;
+  }
+}
+
+function wasRecentlyPlayed(
+  suggestion: ChordSuggestion,
+  chordHistory: ChordCandidate[],
+): boolean {
+  return chordHistory.slice(-8).some((chord) => areChordsEquivalent(suggestion, chord));
+}
+
 function dedupeSuggestions(
   suggestions: {
     suggestion: ChordSuggestion;
@@ -547,18 +618,4 @@ function noteNameToPitchClass(symbol: string): number {
   );
 
   return pitchClasses.get(noteName) ?? 0;
-}
-
-function shuffleSuggestions<T>(suggestions: T[], random: () => number): T[] {
-  const shuffled = [...suggestions];
-
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(random() * (index + 1));
-    [shuffled[index], shuffled[swapIndex]] = [
-      shuffled[swapIndex],
-      shuffled[index],
-    ];
-  }
-
-  return shuffled;
 }

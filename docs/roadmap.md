@@ -272,7 +272,7 @@ C major diminished passing includes C#dim7 → Dm
 
 ---
 
-## Phase 6 — Ranking, Persistence, Polish, Hardening
+## Phase 6 — Ranking, Polish, Hardening
 
 ### Goal
 
@@ -283,15 +283,8 @@ Make the MVP usable for regular practice.
 Suggestion ranking:
 
 * Selected concept boost.
-* Spice-level filtering.
 * Repetition penalty.
 * Deduplication.
-* Categories:
-
-  * Safe
-  * Color
-  * Spicy
-  * Concept
 
 Polish:
 
@@ -305,7 +298,6 @@ Polish:
 ```txt
 selected concept ranks higher
 repeated suggestion ranks lower
-spice level filters suggestions
 unsupported MIDI state renders
 suggestion card renders
 ```

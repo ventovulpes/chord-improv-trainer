@@ -7,6 +7,8 @@ type MidiSupportStatus =
   | "idle"
   | "requesting"
   | "ready"
+  | "no-device"
+  | "disconnected"
   | "denied"
   | "error";
 
@@ -54,6 +56,8 @@ export function useMidiInputs(onInputEvent: (event: AppInputEvent) => void) {
   const [inputs, setInputs] = useState<MidiInputInfo[]>([]);
   const [selectedInputId, setSelectedInputId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [unsupportedMessageCount, setUnsupportedMessageCount] = useState(0);
 
   const selectedInput = useMemo(
     () => inputs.find((input) => input.id === selectedInputId) ?? null,
@@ -66,8 +70,21 @@ export function useMidiInputs(onInputEvent: (event: AppInputEvent) => void) {
     setInputs(nextInputs);
     setSelectedInputId((currentId) => {
       if (currentId && nextInputs.some((input) => input.id === currentId)) {
+        setStatus("ready");
+        setStatusMessage(null);
         return currentId;
       }
+
+      if (currentId) {
+        setStatus(nextInputs.length === 0 ? "no-device" : "disconnected");
+        setStatusMessage("The selected MIDI input disconnected.");
+        return null;
+      }
+
+      setStatus(nextInputs.length === 0 ? "no-device" : "ready");
+      setStatusMessage(
+        nextInputs.length === 0 ? "No MIDI input devices are available." : null,
+      );
 
       return nextInputs[0]?.id ?? null;
     });
@@ -89,7 +106,6 @@ export function useMidiInputs(onInputEvent: (event: AppInputEvent) => void) {
       const access = await requestMIDIAccess();
 
       setMidiAccess(access);
-      setStatus("ready");
       refreshInputs(access);
     } catch (error) {
       setMidiAccess(null);
@@ -135,7 +151,11 @@ export function useMidiInputs(onInputEvent: (event: AppInputEvent) => void) {
 
       if (normalizedEvent) {
         onInputEvent(normalizedEvent);
+        return;
       }
+
+      setUnsupportedMessageCount((count) => count + 1);
+      setStatusMessage("Ignored an unsupported MIDI message.");
     };
 
     return () => {
@@ -149,8 +169,14 @@ export function useMidiInputs(onInputEvent: (event: AppInputEvent) => void) {
     selectedInput,
     selectedInputId,
     errorMessage,
+    statusMessage,
+    unsupportedMessageCount,
     requestAccess,
-    selectInput: setSelectedInputId,
+    selectInput: (inputId: string | null) => {
+      setSelectedInputId(inputId);
+      setStatus(inputId ? "ready" : inputs.length === 0 ? "no-device" : "disconnected");
+      setStatusMessage(inputId ? null : "No MIDI input is selected.");
+    },
   };
 }
 

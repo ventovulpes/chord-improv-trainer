@@ -6,6 +6,7 @@ import {
 import {
   suggestNextChords,
   type ChordSuggestion,
+  type SelectedChordConcept,
 } from "./harmonySuggestions";
 import { areChordsEquivalent } from "./chordTheory";
 import type { NoteState } from "./noteState";
@@ -15,6 +16,7 @@ export const MAX_CHORD_HISTORY = 24;
 
 export type MusicalContext = {
   keyRoot: number;
+  selectedConcept: SelectedChordConcept;
   chordDetection: ChordDetectionResult;
   chordHistory: ChordCandidate[];
   visibleSuggestions: ChordSuggestion[];
@@ -22,6 +24,7 @@ export type MusicalContext = {
 
 export type MusicalContextOptions = {
   keyRoot?: number;
+  selectedConcept?: SelectedChordConcept;
 };
 
 const EMPTY_CHORD_DETECTION: ChordDetectionResult = {
@@ -34,6 +37,7 @@ export function createInitialMusicalContext(
 ): MusicalContext {
   return {
     keyRoot: options.keyRoot ?? DEFAULT_KEY_ROOT,
+    selectedConcept: options.selectedConcept ?? "automatic",
     chordDetection: EMPTY_CHORD_DETECTION,
     chordHistory: [],
     visibleSuggestions: [],
@@ -52,6 +56,7 @@ export function updateMusicalContext(
   options: MusicalContextOptions = {},
 ): MusicalContext {
   const keyRoot = options.keyRoot ?? context.keyRoot;
+  const selectedConcept = options.selectedConcept ?? context.selectedConcept;
   const previousChord = context.chordHistory[context.chordHistory.length - 1];
   const stableChordDetection = detectChordFromNoteState(noteState, {
     keyRoot,
@@ -60,16 +65,22 @@ export function updateMusicalContext(
   const chordSuggestions = suggestNextChords(stableChordDetection.best, {
     chordHistory: context.chordHistory,
     keyRoot,
+    recentSuggestionIds: context.visibleSuggestions.map(
+      (suggestion) => suggestion.id,
+    ),
+    selectedConcept,
   });
   const visibleSuggestions = chooseVisibleSuggestions(
     context,
     stableChordDetection.best,
     chordSuggestions,
     keyRoot,
+    selectedConcept,
   );
 
   return {
     keyRoot,
+    selectedConcept,
     chordDetection: stableChordDetection,
     chordHistory: appendDetectedChord(
       context.chordHistory,
@@ -84,12 +95,16 @@ function chooseVisibleSuggestions(
   detectedChord: ChordCandidate | null,
   chordSuggestions: ChordSuggestion[],
   keyRoot: number,
+  selectedConcept: SelectedChordConcept,
 ): ChordSuggestion[] {
   if (chordSuggestions.length === 0) {
     return context.visibleSuggestions;
   }
 
-  if (keyRoot !== context.keyRoot) {
+  if (
+    keyRoot !== context.keyRoot ||
+    selectedConcept !== context.selectedConcept
+  ) {
     return chordSuggestions;
   }
 

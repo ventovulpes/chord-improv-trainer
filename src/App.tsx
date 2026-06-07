@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import type { ChordCandidate } from "./domain/chordDetection";
 import type { ChordSuggestion } from "./domain/harmonySuggestions";
+import type {
+  ChordConceptType,
+  SelectedChordConcept,
+} from "./domain/harmonySuggestions";
 import {
   createInitialMusicalContext,
   resetMusicalContext,
@@ -54,6 +58,16 @@ const SUGGESTION_LIMIT_OPTIONS = [
   { value: "all", label: "All" },
 ] as const;
 
+const CONCEPT_OPTIONS: { value: SelectedChordConcept; label: string }[] = [
+  { value: "automatic", label: "Automatic" },
+  { value: "secondaryDominant", label: "Secondary dominants" },
+  { value: "diatonic", label: "Diatonic" },
+  { value: "borrowedIv", label: "Borrowed iv" },
+  { value: "modalMixture", label: "Modal mixture" },
+  { value: "tritoneSubstitution", label: "Tritone substitutions" },
+  { value: "diminishedPassing", label: "Diminished passing" },
+];
+
 type SuggestionLimit = (typeof SUGGESTION_LIMIT_OPTIONS)[number]["value"];
 
 type AppState = {
@@ -67,6 +81,7 @@ type AppAction =
   | { type: "event"; event: AppInputEvent }
   | { type: "reset" }
   | { type: "setKeyRoot"; keyRoot: number }
+  | { type: "setSelectedConcept"; selectedConcept: SelectedChordConcept }
   | { type: "setRecentWindowMs"; recentWindowMs: number }
   | { type: "setSuggestionLimit"; suggestionLimit: SuggestionLimit };
 
@@ -91,6 +106,9 @@ function reducer(state: AppState, action: AppAction): AppState {
         musicalContext: updateMusicalContext(
           state.musicalContext,
           noteState,
+          {
+            selectedConcept: state.musicalContext.selectedConcept,
+          },
         ),
         recentWindowMs: state.recentWindowMs,
         suggestionLimit: state.suggestionLimit,
@@ -101,6 +119,7 @@ function reducer(state: AppState, action: AppAction): AppState {
         noteState: createInitialNoteState(),
         musicalContext: resetMusicalContext({
           keyRoot: state.musicalContext.keyRoot,
+          selectedConcept: state.musicalContext.selectedConcept,
         }),
         recentWindowMs: state.recentWindowMs,
         suggestionLimit: state.suggestionLimit,
@@ -113,6 +132,18 @@ function reducer(state: AppState, action: AppAction): AppState {
           state.musicalContext,
           state.noteState,
           { keyRoot: action.keyRoot },
+        ),
+        recentWindowMs: state.recentWindowMs,
+        suggestionLimit: state.suggestionLimit,
+      };
+    }
+    case "setSelectedConcept": {
+      return {
+        noteState: state.noteState,
+        musicalContext: updateMusicalContext(
+          state.musicalContext,
+          state.noteState,
+          { selectedConcept: action.selectedConcept },
         ),
         recentWindowMs: state.recentWindowMs,
         suggestionLimit: state.suggestionLimit,
@@ -251,6 +282,26 @@ export default function App() {
                 ))}
               </select>
             </label>
+            <label className="flex flex-row items-center gap-2 text-sm font-medium text-[#5b6b82]">
+              Concept
+              <select
+                className="rounded-md border border-[#cbd3df] bg-white px-3 py-2 text-[#172033]"
+                value={musicalContext.selectedConcept}
+                onChange={(event) =>
+                  dispatch({
+                    type: "setSelectedConcept",
+                    selectedConcept: event.currentTarget
+                      .value as SelectedChordConcept,
+                  })
+                }
+              >
+                {CONCEPT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button
               className="inline-flex w-fit items-center rounded-md border border-[#cbd3df] bg-white px-3 py-2 text-sm font-semibold text-[#172033] hover:bg-[#eef2f7]"
               type="button"
@@ -281,13 +332,18 @@ export default function App() {
                     value={midiStatusLabel(midi.status)}
                   />
                   <StatusRow
-                    label="Selected input"
-                    value={midi.selectedInput?.name ?? "None"}
+                    label="Tracked events"
+                    value={String(noteState.recentEvents.length)}
                   />
                 </div>
                 {midi.errorMessage ? (
                   <p className="rounded-md border border-[#e0b4b4] bg-[#fff8f8] px-3 py-2 text-sm text-[#8a2d2d]">
                     {midi.errorMessage}
+                  </p>
+                ) : null}
+                {midi.statusMessage ? (
+                  <p className="rounded-md border border-[#cbd3df] bg-white px-3 py-2 text-sm text-[#5b6b82]">
+                    {midi.statusMessage}
                   </p>
                 ) : null}
                 <div className="grid gap-2 sm:grid-cols-[auto_1fr]">
@@ -317,6 +373,9 @@ export default function App() {
                       {midi.inputs.length === 0 ? (
                         <option value="">No MIDI inputs</option>
                       ) : null}
+                      {midi.inputs.length > 0 && midi.selectedInputId === null ? (
+                        <option value="">Select MIDI input</option>
+                      ) : null}
                       {midi.inputs.map((input) => (
                         <option key={input.id} value={input.id}>
                           {input.name}
@@ -325,49 +384,18 @@ export default function App() {
                     </select>
                   </label>
                 </div>
-                <div className="grid gap-2 sm:grid-cols-2">
                   <label className="flex min-w-0 flex-col gap-1 text-sm font-medium text-[#5b6b82]">
-                    Recent window
+                    Recent window (ms)
                     <input
                       className="min-w-0 rounded-md border border-[#cbd3df] bg-white px-3 py-2 text-[#172033]"
                       type="number"
-                      step={10}
+                      step="any"
                       value={recentWindowMs}
                       onChange={(event) =>
                         setRecentWindowMs(event.currentTarget.value)
                       }
                     />
                   </label>
-                  <StatusRow
-                    label="Tracked events"
-                    value={String(noteState.recentEvents.length)}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {INPUT_NOTES.map(({ note, key }) => (
-                    <div
-                      className="overflow-hidden rounded-md border border-[#cbd3df] bg-white"
-                      key={note}
-                    >
-                      <button
-                        className={`block w-full border-b border-[#cbd3df] px-3 py-3 text-center text-sm font-semibold ${
-                          activeNoteNumbers.has(note)
-                            ? "bg-[#172033] text-white hover:bg-[#2c3b56]"
-                            : "hover:bg-[#eef2f7]"
-                        }`}
-                        type="button"
-                        aria-pressed={activeNoteNumbers.has(note)}
-                        onClick={() => toggleNote(note)}
-                      >
-                        {noteName(note)}{" "}
-                        {activeNoteNumbers.has(note) ? "Off" : "On"}
-                      </button>
-                      <div className="border-t border-[#d7dce5] px-2 py-1 text-center text-xs font-medium text-[#5b6b82]">
-                        Key: {key === ";" ? ";" : key.toUpperCase()}
-                      </div>
-                    </div>
-                  ))}
-                </div>
               </div>
             </Panel>
 
@@ -435,25 +463,21 @@ export default function App() {
                   value={musicalContext.chordDetection.best.symbol}
                 />
                 <StatusRow
-                  label="Quality"
-                  value={qualityLabel(musicalContext.chordDetection.best.quality)}
-                />
-                <StatusRow
                   label="Confidence"
                   value={confidenceLabel(
                     musicalContext.chordDetection.best.confidence,
                   )}
                 />
-              </div>
-              <div>
-                <h3 className="mb-2 text-sm font-semibold text-[#5b6b82]">
-                  Matched pitch classes
-                </h3>
-                <PitchClassBadges
-                  pitchClasses={
-                    musicalContext.chordDetection.best.matchedPitchClasses
-                  }
-                />
+                <div className="flex items-center justify-between gap-4 rounded-md border border-[#d7dce5] bg-white px-3 py-2 text-sm">
+                  <span className="text-[#5b6b82]">
+                    Matched pitch classes
+                  </span>
+                  <PitchClassBadges
+                    pitchClasses={
+                      musicalContext.chordDetection.best.matchedPitchClasses
+                    }
+                  />
+                </div>
               </div>
               {musicalContext.chordDetection.alternatives.length > 0 ? (
                 <div>
@@ -615,6 +639,24 @@ function SuggestionCard({ suggestion }: { suggestion: ChordSuggestion }) {
           {suggestion.context}
         </p>
       </div>
+      <div className="grid gap-2 text-sm text-[#34445f]">
+        <StatusRow label="Roman numeral" value={suggestion.romanNumeral} />
+        {suggestion.resolutionTarget ? (
+          <StatusRow label="Resolves to" value={suggestion.resolutionTarget} />
+        ) : null}
+        <div>
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#5b6b82]">
+            Chord tones
+          </h4>
+          <div className="flex flex-wrap gap-2">
+            {suggestion.chordTones.map((tone) => (
+              <Badge compact key={tone}>
+                {tone}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      </div>
     </article>
   );
 }
@@ -647,11 +689,19 @@ function midiStatusLabel(status: ReturnType<typeof useMidiInputs>["status"]) {
       return "Requesting access";
     case "ready":
       return "Ready";
+    case "no-device":
+      return "No device";
+    case "disconnected":
+      return "Disconnected";
     case "denied":
       return "Permission denied";
     case "error":
       return "Error";
   }
+}
+
+function conceptLabel(concept: ChordConceptType): string {
+  return CONCEPT_OPTIONS.find((option) => option.value === concept)?.label ?? concept;
 }
 
 function Badge({

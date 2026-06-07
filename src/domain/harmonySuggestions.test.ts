@@ -95,21 +95,51 @@ describe("harmony suggestions expected behavior", () => {
     );
   });
 
-  it("randomizes each priority group while keeping nondiatonic before modal mixture before diatonic chords", () => {
-    const lowRandomSuggestions = suggestNextChords(
-      detectedChord("C", 0, "major"),
-      { random: () => 0 },
+  it("returns deterministic suggestions grouped by priority", () => {
+    const firstSuggestions = suggestNextChords(detectedChord("C", 0, "major"));
+    const secondSuggestions = suggestNextChords(detectedChord("C", 0, "major"));
+
+    expect(firstSuggestions.map((suggestion) => suggestion.symbol)).toEqual(
+      secondSuggestions.map((suggestion) => suggestion.symbol),
     );
-    const highRandomSuggestions = suggestNextChords(
-      detectedChord("C", 0, "major"),
-      { random: () => 0.99 },
+    expect(isGroupedByPriority(firstSuggestions)).toBe(true);
+  });
+
+  it("ranks the selected concept ahead of other suggestions", () => {
+    const suggestions = suggestNextChords(detectedChord("C", 0, "major"), {
+      selectedConcept: "tritoneSubstitution",
+    });
+
+    expect(suggestions[0]).toEqual(
+      expect.objectContaining({
+        concept: "tritoneSubstitution",
+      }),
+    );
+  });
+
+  it("penalizes repeated suggestions", () => {
+    const suggestions = suggestNextChords(detectedChord("C", 0, "major"));
+    const repeatedSuggestion = suggestions[0];
+    const rerankedSuggestions = suggestNextChords(
+      detectedChord("G", 7, "major"),
+      {
+        recentSuggestionIds: [repeatedSuggestion.id],
+      },
     );
 
-    expect(lowRandomSuggestions.map((suggestion) => suggestion.symbol)).not.toEqual(
-      highRandomSuggestions.map((suggestion) => suggestion.symbol),
+    expect(rerankedSuggestions[0]?.id).not.toBe(repeatedSuggestion.id);
+    expect(rerankedSuggestions.map((suggestion) => suggestion.id)).toContain(
+      repeatedSuggestion.id,
     );
-    expect(isGroupedByPriority(lowRandomSuggestions)).toBe(true);
-    expect(isGroupedByPriority(highRandomSuggestions)).toBe(true);
+  });
+
+  it("deduplicates suggestions by symbol and concept", () => {
+    const suggestions = suggestNextChords(detectedChord("C", 0, "major"));
+    const uniqueKeys = new Set(
+      suggestions.map((suggestion) => `${suggestion.symbol}-${suggestion.concept}`),
+    );
+
+    expect(uniqueKeys.size).toBe(suggestions.length);
   });
 
   it("generates Phase 5 harmonic concepts through the shared suggestion system", () => {
