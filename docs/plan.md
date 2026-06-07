@@ -245,9 +245,3 @@ The MVP should not include:
 ## 3. Roadmap
 
 Found in docs/roadmap.md
-
-### Next Phase: 6
-
-## 4. Architecture
-
-Found in docs/architecture.md
