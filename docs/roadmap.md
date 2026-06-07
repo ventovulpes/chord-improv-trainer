@@ -14,7 +14,6 @@ Input notes
 → detect harmony
 → suggest chord
 → user attempts chord
-→ grade attempt
 → store progress
 ```
 

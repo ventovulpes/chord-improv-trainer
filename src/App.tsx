@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useReducer } from "react";
+import type { ChordCandidate } from "./domain/chordDetection";
+import type { ChordSuggestion } from "./domain/harmonySuggestions";
 import {
-  detectChordFromNoteState,
-  type ChordCandidate,
-} from "./domain/chordDetection";
+  createInitialMusicalContext,
+  resetMusicalContext,
+  updateMusicalContext,
+  type MusicalContext,
+} from "./domain/musicalContext";
 import {
   DEFAULT_RECENT_WINDOW_MS,
   applyNoteEvent,
   createInitialNoteState,
-  resetNoteState,
   type NoteState,
 } from "./domain/noteState";
 import {
@@ -29,23 +32,98 @@ const INPUT_NOTES = [
   { note: 72, key: ";" },
 ];
 
+const KEY_OPTIONS = [
+  { root: 0, label: "C major" },
+  { root: 1, label: "C# major" },
+  { root: 2, label: "D major" },
+  { root: 3, label: "D# major" },
+  { root: 4, label: "E major" },
+  { root: 5, label: "F major" },
+  { root: 6, label: "F# major" },
+  { root: 7, label: "G major" },
+  { root: 8, label: "G# major" },
+  { root: 9, label: "A major" },
+  { root: 10, label: "A# major" },
+  { root: 11, label: "B major" },
+];
+
+const SUGGESTION_LIMIT_OPTIONS = [
+  { value: "3", label: "3" },
+  { value: "6", label: "6" },
+  { value: "9", label: "9" },
+  { value: "all", label: "All" },
+] as const;
+
+type SuggestionLimit = (typeof SUGGESTION_LIMIT_OPTIONS)[number]["value"];
+
+type AppState = {
+  noteState: NoteState;
+  musicalContext: MusicalContext;
+  suggestionLimit: SuggestionLimit;
+};
+
 type AppAction =
   | { type: "event"; event: AppInputEvent }
-  | { type: "reset" };
+  | { type: "reset" }
+  | { type: "setKeyRoot"; keyRoot: number }
+  | { type: "setSuggestionLimit"; suggestionLimit: SuggestionLimit };
 
-function reducer(state: NoteState, action: AppAction): NoteState {
+function createInitialAppState(): AppState {
+  return {
+    noteState: createInitialNoteState(),
+    musicalContext: createInitialMusicalContext(),
+    suggestionLimit: "3",
+  };
+}
+
+function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
-    case "event":
-      return applyNoteEvent(state, action.event);
-    case "reset":
-      return resetNoteState();
+    case "event": {
+      const noteState = applyNoteEvent(state.noteState, action.event);
+
+      return {
+        noteState,
+        musicalContext: updateMusicalContext(
+          state.musicalContext,
+          noteState,
+        ),
+        suggestionLimit: state.suggestionLimit,
+      };
+    }
+    case "reset": {
+      return {
+        noteState: createInitialNoteState(),
+        musicalContext: resetMusicalContext({
+          keyRoot: state.musicalContext.keyRoot,
+        }),
+        suggestionLimit: state.suggestionLimit,
+      };
+    }
+    case "setKeyRoot": {
+      return {
+        noteState: state.noteState,
+        musicalContext: updateMusicalContext(
+          state.musicalContext,
+          state.noteState,
+          { keyRoot: action.keyRoot },
+        ),
+        suggestionLimit: state.suggestionLimit,
+      };
+    }
+    case "setSuggestionLimit": {
+      return {
+        ...state,
+        suggestionLimit: action.suggestionLimit,
+      };
+    }
   }
 }
 
 export default function App() {
-  const [noteState, dispatch] = useReducer(reducer, undefined, () =>
-    createInitialNoteState(),
+  const [state, dispatch] = useReducer(reducer, undefined, () =>
+    createInitialAppState(),
   );
+  const { noteState, musicalContext, suggestionLimit } = state;
   const handleMidiInputEvent = useCallback((event: AppInputEvent) => {
     dispatch({ type: "event", event });
   }, []);
@@ -95,9 +173,12 @@ export default function App() {
     () => new Set(noteState.activeNotes.map((activeNote) => activeNote.note)),
     [noteState.activeNotes],
   );
-  const chordDetection = useMemo(
-    () => detectChordFromNoteState(noteState),
-    [noteState],
+  const displayedSuggestions = useMemo(
+    () =>
+      suggestionLimit === "all"
+        ? musicalContext.visibleSuggestions
+        : musicalContext.visibleSuggestions.slice(0, Number(suggestionLimit)),
+    [musicalContext.visibleSuggestions, suggestionLimit],
   );
 
   function sendEvent(type: NoteInputEvent["type"], note: number) {
@@ -111,6 +192,10 @@ export default function App() {
     sendEvent(activeNoteNumbers.has(note) ? "noteOff" : "noteOn", note);
   }
 
+  function resetApp() {
+    dispatch({ type: "reset" });
+  }
+
   return (
     <main className="min-h-screen bg-[#f6f7f9] px-4 py-6 text-[#172033] sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
@@ -120,13 +205,34 @@ export default function App() {
               Chord Improv Trainer
             </h1>
           </div>
-          <button
-            className="inline-flex w-fit items-center rounded-md bg-[#172033] px-4 py-2 text-sm font-semibold text-white hover:bg-[#2c3b56]"
-            type="button"
-            onClick={() => dispatch({ type: "reset" })}
-          >
-            Reset
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <label className="flex flex-row items-center gap-2 text-sm font-medium text-[#5b6b82]">
+              Key
+              <select
+                className="rounded-md border border-[#cbd3df] bg-white px-3 py-2 text-[#172033]"
+                value={musicalContext.keyRoot}
+                onChange={(event) =>
+                  dispatch({
+                    type: "setKeyRoot",
+                    keyRoot: Number(event.currentTarget.value),
+                  })
+                }
+              >
+                {KEY_OPTIONS.map((option) => (
+                  <option key={option.root} value={option.root}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="inline-flex w-fit items-center rounded-md bg-[#172033] px-4 py-2 text-sm font-semibold text-white hover:bg-[#2c3b56]"
+              type="button"
+              onClick={resetApp}
+            >
+              Reset
+            </button>
+          </div>
         </header>
 
         <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
@@ -236,21 +342,62 @@ export default function App() {
           </Panel>
         </section>
 
+        <Panel title="Suggestions">
+          <div className="flex flex-col gap-2">
+            {musicalContext.visibleSuggestions.length === 0 ? (
+              <EmptyText>Play a chord to see next chord suggestions</EmptyText>
+            ) : (
+              <div className="grid gap-3 lg:grid-cols-3">
+                {displayedSuggestions.map((suggestion: ChordSuggestion) => (
+                  <SuggestionCard
+                    suggestion={suggestion}
+                    key={suggestion.id}
+                  />
+                ))}
+              </div>
+            )}
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <label className="flex w-fit items-center gap-2 text-sm font-medium text-[#5b6b82]">
+                Show
+                <select
+                  className="rounded-md border border-[#cbd3df] bg-white px-3 py-2 text-[#172033]"
+                  value={suggestionLimit}
+                  onChange={(event) =>
+                    dispatch({
+                      type: "setSuggestionLimit",
+                      suggestionLimit: event.currentTarget
+                        .value as SuggestionLimit,
+                    })
+                  }
+                >
+                  {SUGGESTION_LIMIT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+        </Panel>
+
         <Panel title="Detected Chord">
-          {chordDetection.best ? (
+          {musicalContext.chordDetection.best ? (
             <div className="flex flex-col gap-4">
               <div className="grid gap-2 sm:grid-cols-3">
                 <StatusRow
                   label="Chord"
-                  value={chordDetection.best.symbol}
+                  value={musicalContext.chordDetection.best.symbol}
                 />
                 <StatusRow
                   label="Quality"
-                  value={qualityLabel(chordDetection.best.quality)}
+                  value={qualityLabel(musicalContext.chordDetection.best.quality)}
                 />
                 <StatusRow
                   label="Confidence"
-                  value={confidenceLabel(chordDetection.best.confidence)}
+                  value={confidenceLabel(
+                    musicalContext.chordDetection.best.confidence,
+                  )}
                 />
               </div>
               <div>
@@ -258,16 +405,18 @@ export default function App() {
                   Matched pitch classes
                 </h3>
                 <PitchClassBadges
-                  pitchClasses={chordDetection.best.matchedPitchClasses}
+                  pitchClasses={
+                    musicalContext.chordDetection.best.matchedPitchClasses
+                  }
                 />
               </div>
-              {chordDetection.alternatives.length > 0 ? (
+              {musicalContext.chordDetection.alternatives.length > 0 ? (
                 <div>
                   <h3 className="mb-2 text-sm font-semibold text-[#5b6b82]">
                     Alternatives
                   </h3>
                   <div className="grid gap-2 sm:grid-cols-3">
-                    {chordDetection.alternatives.map((candidate) => (
+                    {musicalContext.chordDetection.alternatives.map((candidate: ChordCandidate) => (
                       <CandidateSummary
                         candidate={candidate}
                         key={candidate.symbol}
@@ -282,11 +431,7 @@ export default function App() {
           )}
         </Panel>
 
-        <Panel title="Suggestions">
-          <EmptyText>Harmony suggestions start in Phase 4</EmptyText>
-        </Panel>
-
-        <section className="grid gap-4 lg:grid-cols-3">
+        <section className="grid gap-4 lg:grid-cols-4">
           <Panel title="Recent Notes">
             {recentEvents.length === 0 ? (
               <EmptyText>No recent events</EmptyText>
@@ -336,6 +481,24 @@ export default function App() {
                 }
               />
             </div>
+          </Panel>
+
+          <Panel title="Chord History">
+            {musicalContext.chordHistory.length === 0 ? (
+              <EmptyText>No detected chords yet</EmptyText>
+            ) : (
+              <ol className="flex flex-col gap-2">
+                {musicalContext.chordHistory.map((chord: ChordCandidate, index: number) => (
+                  <li
+                    className="flex items-center justify-between rounded-md border border-[#d7dce5] bg-white px-3 py-2 text-sm"
+                    key={`${chord.symbol}-${index}`}
+                  >
+                    <span className="font-medium">{index + 1}</span>
+                    <span>{chord.symbol}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
           </Panel>
         </section>
       </div>
@@ -394,6 +557,21 @@ function CandidateSummary({ candidate }: { candidate: ChordCandidate }) {
         <PitchClassBadges pitchClasses={candidate.matchedPitchClasses} compact />
       </div>
     </div>
+  );
+}
+
+function SuggestionCard({ suggestion }: { suggestion: ChordSuggestion }) {
+  return (
+    <article className="flex h-full flex-col gap-2 rounded-md border border-[#d7dce5] bg-white p-4">
+      <div>
+        <h3 className="text-2xl font-semibold tracking-normal">
+          {suggestion.symbol}
+        </h3>
+        <p className="text-sm leading-6 text-[#34445f]">
+          {suggestion.context}
+        </p>
+      </div>
+    </article>
   );
 }
 
