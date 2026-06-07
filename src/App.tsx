@@ -532,17 +532,16 @@ export default function App() {
             {musicalContext.chordHistory.length === 0 ? (
               <EmptyText>No detected chords yet</EmptyText>
             ) : (
-              <ol className="flex flex-col gap-2">
+              <ul className="flex flex-col-reverse gap-2">
                 {musicalContext.chordHistory.map((chord: ChordCandidate, index: number) => (
                   <li
-                    className="flex items-center justify-between rounded-md border border-[#d7dce5] bg-white px-3 py-2 text-sm"
+                    className="flex items-center rounded-md border border-[#d7dce5] bg-white px-3 py-2 text-sm"
                     key={`${chord.symbol}-${index}`}
                   >
-                    <span className="font-medium">{index + 1}</span>
                     <span>{chord.symbol}</span>
                   </li>
                 ))}
-              </ol>
+              </ul>
             )}
           </Panel>
         </section>

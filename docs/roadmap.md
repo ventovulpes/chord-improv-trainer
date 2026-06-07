@@ -284,7 +284,6 @@ Suggestion ranking:
 
 * Selected concept boost.
 * Spice-level filtering.
-* Novelty penalty.
 * Repetition penalty.
 * Deduplication.
 * Categories:
@@ -294,35 +293,12 @@ Suggestion ranking:
   * Spicy
   * Concept
 
-Persistence:
-
-* `localStorage` for settings.
-* `IndexedDB` for practice attempts.
-
-Store:
-
-```txt
-selected key
-selected mode
-selected concepts
-spice level
-preferred MIDI input
-detection window
-practice attempts
-missed pitch classes
-concept progress
-recent chord history
-```
-
 Polish:
 
 * Unsupported MIDI message.
 * Permission denied message.
 * No-device state.
 * Device disconnected state.
-* Empty suggestion state.
-* Panic/reset controls.
-* Progress summary.
 
 ### Tests
 
@@ -330,11 +306,6 @@ Polish:
 selected concept ranks higher
 repeated suggestion ranks lower
 spice level filters suggestions
-duplicates collapse
-settings survive reload
-invalid settings fall back to defaults
-practice attempt is stored
-progress stats derive from attempts
 unsupported MIDI state renders
 suggestion card renders
 ```
@@ -342,8 +313,6 @@ suggestion card renders
 ### Success Criteria
 
 * Suggestions are limited and readable.
-* Settings persist.
-* Practice history persists.
 * Error states are clear.
 * UI contains no music logic.
 * App is usable without audio, backend, AI, or voicing suggestions.
@@ -361,9 +330,6 @@ The MVP is complete when a user can:
 5. Receive useful next-chord suggestions.
 6. Understand why each suggestion works.
 7. Practice a suggested chord in any pattern.
-8. Receive correct feedback.
-9. Refresh and keep settings/progress.
-10. Use the app with no sound, backend, AI, or voicing engine.
 
 ---
 
