@@ -105,6 +105,17 @@ describe("chord detection", () => {
     expect(detection.best?.quality).toBe("major");
   });
 
+  it("uses the configured minor key to infer perfect-fifth quality", () => {
+    const detection = detectChordFromEvents(
+      [noteOn(69, 0), noteOn(76, 250)],
+      undefined,
+      { keyMode: "minor", keyRoot: 9 },
+    );
+
+    expect(detection.best?.symbol).toBe("Am");
+    expect(detection.best?.quality).toBe("minor");
+  });
+
   it("does not infer a quality for a non-diatonic perfect fifth", () => {
     const detection = detectChordFromNoteState(
       replayNoteEvents([noteOn(61, 0), noteOn(68, 250)]),

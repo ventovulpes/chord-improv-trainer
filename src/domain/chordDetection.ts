@@ -10,6 +10,7 @@ import {
   chordTonePitchClasses,
   type ChordQuality,
 } from "./chordTheory";
+import type { KeyMode } from "./key";
 
 export type { ChordQuality } from "./chordTheory";
 
@@ -29,10 +30,12 @@ export type ChordDetectionResult = {
 
 export type ChordDetectionOptions = {
   keyRoot?: number;
+  keyMode?: KeyMode;
   previousChord?: ChordCandidate | null;
 };
 
 const DEFAULT_KEY_ROOT = 0;
+const DEFAULT_KEY_MODE: KeyMode = "major";
 const MAJOR_SCALE_DIATONIC_QUALITIES = new Map<number, ChordQuality>([
   [0, "major"],
   [2, "minor"],
@@ -40,6 +43,15 @@ const MAJOR_SCALE_DIATONIC_QUALITIES = new Map<number, ChordQuality>([
   [5, "major"],
   [7, "major"],
   [9, "minor"],
+]);
+const NATURAL_MINOR_SCALE_DIATONIC_QUALITIES = new Map<number, ChordQuality>([
+  [0, "minor"],
+  [2, "diminished"],
+  [3, "major"],
+  [5, "minor"],
+  [7, "minor"],
+  [8, "major"],
+  [10, "major"],
 ]);
 
 const MIN_CONFIDENT_MATCHES = 3;
@@ -74,6 +86,7 @@ export function detectChordFromEvents(
       evidencePitchClasses,
       preferredRoot,
       options.keyRoot ?? DEFAULT_KEY_ROOT,
+      options.keyMode ?? DEFAULT_KEY_MODE,
     );
 
     if (perfectFifthCandidate) {
@@ -211,6 +224,7 @@ function inferPerfectFifthCandidate(
   evidencePitchClasses: number[],
   preferredRoot: number | undefined,
   keyRoot: number,
+  keyMode: KeyMode,
 ): ChordCandidate | null {
   if (evidencePitchClasses.length !== 2) {
     return null;
@@ -235,7 +249,7 @@ function inferPerfectFifthCandidate(
     return null;
   }
 
-  const quality = diatonicTriadQuality(inferredRoot, keyRoot);
+  const quality = diatonicTriadQuality(inferredRoot, keyRoot, keyMode);
 
   if (!quality) {
     return null;
@@ -277,10 +291,15 @@ function findPerfectFifthRoot(
 function diatonicTriadQuality(
   root: number,
   keyRoot: number,
+  keyMode: KeyMode,
 ): ChordQuality | null {
   const scaleDegree = pitchClass(root - keyRoot);
+  const qualities =
+    keyMode === "minor"
+      ? NATURAL_MINOR_SCALE_DIATONIC_QUALITIES
+      : MAJOR_SCALE_DIATONIC_QUALITIES;
 
-  return MAJOR_SCALE_DIATONIC_QUALITIES.get(scaleDegree) ?? null;
+  return qualities.get(scaleDegree) ?? null;
 }
 
 function clamp(value: number, min: number, max: number): number {

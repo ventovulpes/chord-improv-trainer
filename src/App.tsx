@@ -23,6 +23,7 @@ import {
   type AppInputEvent,
   type NoteInputEvent,
 } from "./domain/noteEvents";
+import { KEY_SIGNATURES, type KeyMode } from "./domain/key";
 import { useMidiInputs } from "./useMidiInputs";
 
 const INPUT_NOTES = [
@@ -34,21 +35,6 @@ const INPUT_NOTES = [
   { note: 69, key: "k" },
   { note: 71, key: "l" },
   { note: 72, key: ";" },
-];
-
-const KEY_OPTIONS = [
-  { root: 0, label: "C major" },
-  { root: 1, label: "C# major" },
-  { root: 2, label: "D major" },
-  { root: 3, label: "D# major" },
-  { root: 4, label: "E major" },
-  { root: 5, label: "F major" },
-  { root: 6, label: "F# major" },
-  { root: 7, label: "G major" },
-  { root: 8, label: "G# major" },
-  { root: 9, label: "A major" },
-  { root: 10, label: "A# major" },
-  { root: 11, label: "B major" },
 ];
 
 const SUGGESTION_LIMIT_OPTIONS = [
@@ -66,6 +52,9 @@ const CONCEPT_OPTIONS: { value: SelectedChordConcept; label: string }[] = [
   { value: "modalMixture", label: "Modal mixture" },
   { value: "tritoneSubstitution", label: "Tritone substitutions" },
   { value: "diminishedPassing", label: "Diminished passing" },
+  { value: "harmonicMinorDominant", label: "Harmonic minor dominant" },
+  { value: "neapolitan", label: "Neapolitan" },
+  { value: "picardyThird", label: "Picardy third" },
 ];
 
 type SuggestionLimit = (typeof SUGGESTION_LIMIT_OPTIONS)[number]["value"];
@@ -80,7 +69,7 @@ type AppState = {
 type AppAction =
   | { type: "event"; event: AppInputEvent }
   | { type: "reset" }
-  | { type: "setKeyRoot"; keyRoot: number }
+  | { type: "setKeySignature"; keyRoot: number; keyMode: KeyMode }
   | { type: "setSelectedConcept"; selectedConcept: SelectedChordConcept }
   | { type: "setRecentWindowMs"; recentWindowMs: number }
   | { type: "setSuggestionLimit"; suggestionLimit: SuggestionLimit };
@@ -107,6 +96,7 @@ function reducer(state: AppState, action: AppAction): AppState {
           state.musicalContext,
           noteState,
           {
+            keyMode: state.musicalContext.keyMode,
             selectedConcept: state.musicalContext.selectedConcept,
           },
         ),
@@ -119,19 +109,20 @@ function reducer(state: AppState, action: AppAction): AppState {
         noteState: createInitialNoteState(),
         musicalContext: resetMusicalContext({
           keyRoot: state.musicalContext.keyRoot,
+          keyMode: state.musicalContext.keyMode,
           selectedConcept: state.musicalContext.selectedConcept,
         }),
         recentWindowMs: state.recentWindowMs,
         suggestionLimit: state.suggestionLimit,
       };
     }
-    case "setKeyRoot": {
+    case "setKeySignature": {
       return {
         noteState: state.noteState,
         musicalContext: updateMusicalContext(
           state.musicalContext,
           state.noteState,
-          { keyRoot: action.keyRoot },
+          { keyRoot: action.keyRoot, keyMode: action.keyMode },
         ),
         recentWindowMs: state.recentWindowMs,
         suggestionLimit: state.suggestionLimit,
@@ -267,16 +258,27 @@ export default function App() {
               Key
               <select
                 className="rounded-md border border-[#cbd3df] bg-white px-3 py-2 text-[#172033]"
-                value={musicalContext.keyRoot}
-                onChange={(event) =>
+                value={keySignatureValue(
+                  musicalContext.keyRoot,
+                  musicalContext.keyMode,
+                )}
+                onChange={(event) => {
+                  const [keyRoot, keyMode] = event.currentTarget.value.split(
+                    ":",
+                  ) as [string, KeyMode];
+
                   dispatch({
-                    type: "setKeyRoot",
-                    keyRoot: Number(event.currentTarget.value),
-                  })
-                }
+                    type: "setKeySignature",
+                    keyRoot: Number(keyRoot),
+                    keyMode,
+                  });
+                }}
               >
-                {KEY_OPTIONS.map((option) => (
-                  <option key={option.root} value={option.root}>
+                {KEY_SIGNATURES.map((option) => (
+                  <option
+                    key={keySignatureValue(option.root, option.mode)}
+                    value={keySignatureValue(option.root, option.mode)}
+                  >
                     {option.label}
                   </option>
                 ))}
@@ -584,6 +586,10 @@ function createUiNoteEvent(
     velocity: type === "noteOn" ? 100 : 0,
     timestampMs: performance.now(),
   };
+}
+
+function keySignatureValue(root: number, mode: KeyMode): string {
+  return `${root}:${mode}`;
 }
 
 function Panel({

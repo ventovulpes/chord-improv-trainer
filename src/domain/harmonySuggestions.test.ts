@@ -95,18 +95,26 @@ describe("harmony suggestions expected behavior", () => {
     );
   });
 
-  it("returns deterministic suggestions grouped by priority", () => {
-    const firstSuggestions = suggestNextChords(detectedChord("C", 0, "major"));
-    const secondSuggestions = suggestNextChords(detectedChord("C", 0, "major"));
-
-    expect(firstSuggestions.map((suggestion) => suggestion.symbol)).toEqual(
-      secondSuggestions.map((suggestion) => suggestion.symbol),
+  it("uses weighted randomness to order suggestions", () => {
+    const lowRandomSuggestions = suggestNextChords(
+      detectedChord("C", 0, "major"),
+      { random: () => 0 },
     );
-    expect(isGroupedByPriority(firstSuggestions)).toBe(true);
+    const highRandomSuggestions = suggestNextChords(
+      detectedChord("C", 0, "major"),
+      { random: () => 0.99 },
+    );
+
+    expect(lowRandomSuggestions.map((suggestion) => suggestion.symbol)).not.toEqual(
+      highRandomSuggestions.map((suggestion) => suggestion.symbol),
+    );
+    expect(new Set(lowRandomSuggestions.map((suggestion) => suggestion.id)).size)
+      .toBe(lowRandomSuggestions.length);
   });
 
-  it("ranks the selected concept ahead of other suggestions", () => {
+  it("weights the selected concept ahead of other suggestions", () => {
     const suggestions = suggestNextChords(detectedChord("C", 0, "major"), {
+      random: () => 0.25,
       selectedConcept: "tritoneSubstitution",
     });
 
@@ -118,11 +126,14 @@ describe("harmony suggestions expected behavior", () => {
   });
 
   it("penalizes repeated suggestions", () => {
-    const suggestions = suggestNextChords(detectedChord("C", 0, "major"));
+    const suggestions = suggestNextChords(detectedChord("C", 0, "major"), {
+      random: () => 0,
+    });
     const repeatedSuggestion = suggestions[0];
     const rerankedSuggestions = suggestNextChords(
       detectedChord("G", 7, "major"),
       {
+        random: () => 0.05,
         recentSuggestionIds: [repeatedSuggestion.id],
       },
     );
@@ -287,25 +298,116 @@ describe("harmony suggestions expected behavior", () => {
       expect.arrayContaining(["D", "D7"]),
     );
   });
+
+  it("suggests natural minor diatonic chords in a selected minor key", () => {
+    const suggestions = suggestNextChords(detectedChord("Am", 9, "minor"), {
+      keyMode: "minor",
+      keyRoot: 9,
+    });
+
+    expect(suggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          symbol: "Bdim",
+          concept: "diatonic",
+          romanNumeral: "ii°",
+          chordTones: ["B", "D", "F"],
+        }),
+        expect.objectContaining({
+          symbol: "C",
+          concept: "diatonic",
+          romanNumeral: "bIII",
+        }),
+        expect.objectContaining({
+          symbol: "Dm",
+          concept: "diatonic",
+          romanNumeral: "iv",
+        }),
+        expect.objectContaining({
+          symbol: "Em",
+          concept: "diatonic",
+          romanNumeral: "v",
+        }),
+        expect.objectContaining({
+          symbol: "F",
+          concept: "diatonic",
+          romanNumeral: "bVI",
+        }),
+        expect.objectContaining({
+          symbol: "G",
+          concept: "diatonic",
+          romanNumeral: "bVII",
+        }),
+      ]),
+    );
+    expect(suggestions.map((suggestion) => suggestion.symbol)).not.toContain("Am");
+  });
+
+  it("generates minor-key harmonic concepts in a selected minor key", () => {
+    const suggestions = suggestNextChords(detectedChord("Am", 9, "minor"), {
+      keyMode: "minor",
+      keyRoot: 9,
+    });
+
+    expect(suggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          symbol: "E7",
+          concept: "harmonicMinorDominant",
+          context: "Harmonic minor dominant → Am",
+          romanNumeral: "V7 → i",
+          chordTones: ["E", "G#", "B", "D"],
+        }),
+        expect.objectContaining({
+          symbol: "G#dim7",
+          concept: "harmonicMinorDominant",
+          romanNumeral: "vii°7 → i",
+        }),
+        expect.objectContaining({
+          symbol: "A#",
+          concept: "neapolitan",
+          context: "Neapolitan predominant → E7",
+          romanNumeral: "bII → V",
+        }),
+        expect.objectContaining({
+          symbol: "A",
+          concept: "picardyThird",
+          context: "Picardy third color on Am",
+          romanNumeral: "I",
+        }),
+      ]),
+    );
+  });
+
+  it("suggests minor-key resolutions for harmonic minor dominant and Neapolitan chords", () => {
+    expect(
+      suggestNextChords(detectedChord("E7", 4, "dominant7"), {
+        keyMode: "minor",
+        keyRoot: 9,
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        symbol: "Am",
+        concept: "harmonicMinorDominant",
+        context: "Resolution from E7",
+        romanNumeral: "i",
+      }),
+    ]);
+    expect(
+      suggestNextChords(detectedChord("A#", 10, "major"), {
+        keyMode: "minor",
+        keyRoot: 9,
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        symbol: "E7",
+        concept: "neapolitan",
+        context: "Resolution from A#",
+        romanNumeral: "V7",
+      }),
+    ]);
+  });
 });
-
-function isGroupedByPriority(suggestions: ReturnType<typeof suggestNextChords>): boolean {
-  const priorityRanks = suggestions.map((suggestion) => {
-    if (suggestion.concept === "diatonic") {
-      return 2;
-    }
-
-    if (suggestion.concept === "modalMixture") {
-      return 1;
-    }
-
-    return 0;
-  });
-
-  return priorityRanks.every((rank, index) => {
-    return index === 0 || rank >= priorityRanks[index - 1];
-  });
-}
 
 function detectedChord(
   symbol: string,

@@ -9,13 +9,16 @@ import {
   type SelectedChordConcept,
 } from "./harmonySuggestions";
 import { areChordsEquivalent } from "./chordTheory";
+import type { KeyMode } from "./key";
 import type { NoteState } from "./noteState";
 
 export const DEFAULT_KEY_ROOT = 0;
+export const DEFAULT_KEY_MODE: KeyMode = "major";
 export const MAX_CHORD_HISTORY = 24;
 
 export type MusicalContext = {
   keyRoot: number;
+  keyMode: KeyMode;
   selectedConcept: SelectedChordConcept;
   chordDetection: ChordDetectionResult;
   chordHistory: ChordCandidate[];
@@ -24,6 +27,8 @@ export type MusicalContext = {
 
 export type MusicalContextOptions = {
   keyRoot?: number;
+  keyMode?: KeyMode;
+  random?: () => number;
   selectedConcept?: SelectedChordConcept;
 };
 
@@ -37,6 +42,7 @@ export function createInitialMusicalContext(
 ): MusicalContext {
   return {
     keyRoot: options.keyRoot ?? DEFAULT_KEY_ROOT,
+    keyMode: options.keyMode ?? DEFAULT_KEY_MODE,
     selectedConcept: options.selectedConcept ?? "automatic",
     chordDetection: EMPTY_CHORD_DETECTION,
     chordHistory: [],
@@ -56,18 +62,22 @@ export function updateMusicalContext(
   options: MusicalContextOptions = {},
 ): MusicalContext {
   const keyRoot = options.keyRoot ?? context.keyRoot;
+  const keyMode = options.keyMode ?? context.keyMode;
   const selectedConcept = options.selectedConcept ?? context.selectedConcept;
   const previousChord = context.chordHistory[context.chordHistory.length - 1];
   const stableChordDetection = detectChordFromNoteState(noteState, {
     keyRoot,
+    keyMode,
     previousChord,
   });
   const chordSuggestions = suggestNextChords(stableChordDetection.best, {
     chordHistory: context.chordHistory,
     keyRoot,
+    keyMode,
     recentSuggestionIds: context.visibleSuggestions.map(
       (suggestion) => suggestion.id,
     ),
+    random: options.random,
     selectedConcept,
   });
   const visibleSuggestions = chooseVisibleSuggestions(
@@ -75,11 +85,13 @@ export function updateMusicalContext(
     stableChordDetection.best,
     chordSuggestions,
     keyRoot,
+    keyMode,
     selectedConcept,
   );
 
   return {
     keyRoot,
+    keyMode,
     selectedConcept,
     chordDetection: stableChordDetection,
     chordHistory: appendDetectedChord(
@@ -95,6 +107,7 @@ function chooseVisibleSuggestions(
   detectedChord: ChordCandidate | null,
   chordSuggestions: ChordSuggestion[],
   keyRoot: number,
+  keyMode: KeyMode,
   selectedConcept: SelectedChordConcept,
 ): ChordSuggestion[] {
   if (chordSuggestions.length === 0) {
@@ -103,6 +116,7 @@ function chooseVisibleSuggestions(
 
   if (
     keyRoot !== context.keyRoot ||
+    keyMode !== context.keyMode ||
     selectedConcept !== context.selectedConcept
   ) {
     return chordSuggestions;

@@ -121,6 +121,34 @@ describe("musical context", () => {
     );
   });
 
+  it("uses the selected minor key mode when updating suggestions", () => {
+    const initialContext = createInitialMusicalContext({
+      keyMode: "minor",
+      keyRoot: 9,
+    });
+    const context = updateMusicalContext(
+      initialContext,
+      replayNoteEvents([noteOn(69, 0), noteOn(72, 100), noteOn(76, 200)]),
+      { keyMode: "minor", keyRoot: 9 },
+    );
+
+    expect(context.keyRoot).toBe(9);
+    expect(context.keyMode).toBe("minor");
+    expect(context.chordDetection.best?.symbol).toBe("Am");
+    expect(context.visibleSuggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          symbol: "E7",
+          concept: "harmonicMinorDominant",
+        }),
+        expect.objectContaining({
+          symbol: "A#",
+          concept: "neapolitan",
+        }),
+      ]),
+    );
+  });
+
   it("passes selected concept into visible suggestions", () => {
     const initialContext = createInitialMusicalContext();
     const context = updateMusicalContext(
@@ -148,7 +176,7 @@ describe("musical context", () => {
     const selectedConceptContext = updateMusicalContext(
       cContext,
       replayNoteEvents([noteOn(60, 0), noteOn(64, 100), noteOn(67, 200)]),
-      { selectedConcept: "tritoneSubstitution" },
+      { random: () => 0.25, selectedConcept: "tritoneSubstitution" },
     );
 
     expect(selectedConceptContext.visibleSuggestions).not.toEqual(

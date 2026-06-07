@@ -5,6 +5,7 @@ import {
   chordToneNames,
   type ChordQuality as TheoryChordQuality,
 } from "./chordTheory";
+import type { KeyMode } from "./key";
 import { pitchClass, pitchClassName } from "./noteEvents";
 
 export type ChordConceptType =
@@ -13,7 +14,10 @@ export type ChordConceptType =
   | "borrowedIv"
   | "modalMixture"
   | "tritoneSubstitution"
-  | "diminishedPassing";
+  | "diminishedPassing"
+  | "harmonicMinorDominant"
+  | "neapolitan"
+  | "picardyThird";
 
 export type SelectedChordConcept = ChordConceptType | "automatic";
 
@@ -31,12 +35,14 @@ export type ChordSuggestion = {
 
 export type HarmonySuggestionOptions = {
   keyRoot?: number;
+  keyMode?: KeyMode;
   chordHistory?: ChordCandidate[];
   recentSuggestionIds?: string[];
   selectedConcept?: SelectedChordConcept;
+  random?: () => number;
 };
 
-type MajorKeyDegree = {
+type KeyDegree = {
   offset: number;
   quality: Extract<ChordQuality, "major" | "minor" | "diminished">;
   romanNumeral: string;
@@ -54,6 +60,7 @@ type SuggestionPriorityGroup = "nondiatonic" | "modalMixture" | "diatonic";
 type GeneratorContext = {
   detectedChord: ChordCandidate;
   keyRoot: number;
+  keyMode: KeyMode;
 };
 
 type SuggestionDefinition = {
@@ -67,8 +74,9 @@ type SuggestionDefinition = {
 };
 
 const DEFAULT_KEY_ROOT = 0;
+const DEFAULT_KEY_MODE: KeyMode = "major";
 const DEFAULT_SELECTED_CONCEPT: SelectedChordConcept = "automatic";
-const MAJOR_KEY_TRIADS: MajorKeyDegree[] = [
+const MAJOR_KEY_TRIADS: KeyDegree[] = [
   { offset: 0, quality: "major", romanNumeral: "I", priority: 5 },
   { offset: 2, quality: "minor", romanNumeral: "ii", priority: 2 },
   { offset: 4, quality: "minor", romanNumeral: "iii", priority: 3 },
@@ -77,12 +85,43 @@ const MAJOR_KEY_TRIADS: MajorKeyDegree[] = [
   { offset: 9, quality: "minor", romanNumeral: "vi", priority: 0 },
   { offset: 11, quality: "diminished", romanNumeral: "vii°", priority: 6 },
 ];
+const MINOR_KEY_TRIADS: KeyDegree[] = [
+  { offset: 0, quality: "minor", romanNumeral: "i", priority: 5 },
+  { offset: 2, quality: "diminished", romanNumeral: "ii°", priority: 6 },
+  { offset: 3, quality: "major", romanNumeral: "bIII", priority: 3 },
+  { offset: 5, quality: "minor", romanNumeral: "iv", priority: 2 },
+  { offset: 7, quality: "minor", romanNumeral: "v", priority: 4 },
+  { offset: 8, quality: "major", romanNumeral: "bVI", priority: 1 },
+  { offset: 10, quality: "major", romanNumeral: "bVII", priority: 0 },
+];
+const MINOR_SECONDARY_DOMINANT_TARGETS: KeyDegree[] = [
+  { offset: 3, quality: "major", romanNumeral: "bIII", priority: 3 },
+  { offset: 5, quality: "minor", romanNumeral: "iv", priority: 0 },
+  { offset: 7, quality: "major", romanNumeral: "V", priority: 1 },
+  { offset: 8, quality: "major", romanNumeral: "bVI", priority: 4 },
+  { offset: 10, quality: "major", romanNumeral: "bVII", priority: 2 },
+];
 
 const CONCEPT_GENERATORS: ConceptGenerator[] = [
   {
     concept: "secondaryDominant",
     priorityGroup: "nondiatonic",
     create: createSecondaryDominantSuggestions,
+  },
+  {
+    concept: "harmonicMinorDominant",
+    priorityGroup: "nondiatonic",
+    create: createHarmonicMinorDominantSuggestions,
+  },
+  {
+    concept: "neapolitan",
+    priorityGroup: "nondiatonic",
+    create: createNeapolitanSuggestions,
+  },
+  {
+    concept: "picardyThird",
+    priorityGroup: "nondiatonic",
+    create: createPicardyThirdSuggestions,
   },
   {
     concept: "borrowedIv",
@@ -120,11 +159,14 @@ export function suggestNextChords(
   }
 
   const keyRoot = options.keyRoot ?? DEFAULT_KEY_ROOT;
+  const keyMode = options.keyMode ?? DEFAULT_KEY_MODE;
   const selectedConcept = options.selectedConcept ?? DEFAULT_SELECTED_CONCEPT;
   const recentSuggestionIds = options.recentSuggestionIds ?? [];
+  const random = options.random ?? Math.random;
   const historyResolution = createHistoryResolutionSuggestion(
     detectedChord,
     keyRoot,
+    keyMode,
     options.chordHistory ?? [],
   );
 
@@ -132,17 +174,26 @@ export function suggestNextChords(
     return [historyResolution];
   }
 
-  const directResolution = createDirectResolutionSuggestion(detectedChord, keyRoot);
+  const directResolution = createDirectResolutionSuggestion(
+    detectedChord,
+    keyRoot,
+    keyMode,
+  );
 
   if (directResolution) {
     return [directResolution];
   }
 
-  const generatedSuggestions = createGeneratedSuggestions(detectedChord, keyRoot);
+  const generatedSuggestions = createGeneratedSuggestions(
+    detectedChord,
+    keyRoot,
+    keyMode,
+  );
   const uniqueSuggestions = dedupeSuggestions(generatedSuggestions);
 
-  return rankSuggestions(uniqueSuggestions, {
+  return chooseWeightedSuggestions(uniqueSuggestions, {
     chordHistory: options.chordHistory ?? [],
+    random,
     recentSuggestionIds,
     selectedConcept,
   });
@@ -151,8 +202,9 @@ export function suggestNextChords(
 function createGeneratedSuggestions(
   detectedChord: ChordCandidate,
   keyRoot: number,
+  keyMode: KeyMode,
 ): { suggestion: ChordSuggestion; priorityGroup: SuggestionPriorityGroup }[] {
-  const context: GeneratorContext = { detectedChord, keyRoot };
+  const context: GeneratorContext = { detectedChord, keyRoot, keyMode };
 
   return CONCEPT_GENERATORS.flatMap((generator) =>
     generator.create(context).map((suggestion) => ({
@@ -165,13 +217,19 @@ function createGeneratedSuggestions(
 function createSecondaryDominantSuggestions({
   detectedChord,
   keyRoot,
+  keyMode,
 }: GeneratorContext): ChordSuggestion[] {
-  return MAJOR_KEY_TRIADS.filter(
-    (target) =>
-      target.offset !== 0 &&
-      target.romanNumeral !== "iii" &&
-      target.quality !== "diminished",
-  )
+  const targets =
+    keyMode === "minor"
+      ? MINOR_SECONDARY_DOMINANT_TARGETS
+      : MAJOR_KEY_TRIADS.filter(
+          (target) =>
+            target.offset !== 0 &&
+            target.romanNumeral !== "iii" &&
+            target.quality !== "diminished",
+        );
+
+  return targets
     .map((target) => {
       const targetRoot = pitchClass(keyRoot + target.offset);
       const root = pitchClass(targetRoot + 7);
@@ -188,16 +246,21 @@ function createSecondaryDominantSuggestions({
     })
     .filter(
       (suggestion) =>
-        !isDiatonicMajorRoot(symbolRoot(suggestion.symbol), keyRoot) &&
+        !isDiatonicMajorRoot(symbolRoot(suggestion.symbol), keyRoot, keyMode) &&
         !isCurrentChordSuggestion(suggestion, detectedChord),
     )
-    .sort(byMajorKeyTargetPriority(keyRoot));
+    .sort(byKeyTargetPriority(keyRoot, targets));
 }
 
 function createBorrowedIvSuggestions({
   detectedChord,
   keyRoot,
+  keyMode,
 }: GeneratorContext): ChordSuggestion[] {
+  if (keyMode !== "major") {
+    return [];
+  }
+
   const suggestion = createSuggestion({
     concept: "borrowedIv",
     root: pitchClass(keyRoot + 5),
@@ -214,39 +277,71 @@ function createBorrowedIvSuggestions({
 function createModalMixtureSuggestions({
   detectedChord,
   keyRoot,
+  keyMode,
 }: GeneratorContext): ChordSuggestion[] {
-  return [
-    createSuggestion({
-      concept: "modalMixture",
-      root: pitchClass(keyRoot + 10),
-      quality: "major",
-      romanNumeral: "bVII",
-      context: "Modal mixture from parallel minor",
-    }),
-    createSuggestion({
-      concept: "modalMixture",
-      root: pitchClass(keyRoot + 8),
-      quality: "major",
-      romanNumeral: "bVI",
-      context: "Modal mixture from parallel minor",
-    }),
-    createSuggestion({
-      concept: "modalMixture",
-      root: pitchClass(keyRoot + 3),
-      quality: "major",
-      romanNumeral: "bIII",
-      context: "Modal mixture from parallel minor",
-    }),
-  ].filter((suggestion) => !isCurrentChordSuggestion(suggestion, detectedChord));
+  const suggestions =
+    keyMode === "minor"
+      ? [
+          createSuggestion({
+            concept: "modalMixture",
+            root: pitchClass(keyRoot + 5),
+            quality: "major",
+            romanNumeral: "IV",
+            context: "Modal mixture from parallel major",
+          }),
+          createSuggestion({
+            concept: "modalMixture",
+            root: pitchClass(keyRoot + 2),
+            quality: "minor",
+            romanNumeral: "ii",
+            context: "Modal mixture from parallel major",
+          }),
+        ]
+      : [
+          createSuggestion({
+            concept: "modalMixture",
+            root: pitchClass(keyRoot + 10),
+            quality: "major",
+            romanNumeral: "bVII",
+            context: "Modal mixture from parallel minor",
+          }),
+          createSuggestion({
+            concept: "modalMixture",
+            root: pitchClass(keyRoot + 8),
+            quality: "major",
+            romanNumeral: "bVI",
+            context: "Modal mixture from parallel minor",
+          }),
+          createSuggestion({
+            concept: "modalMixture",
+            root: pitchClass(keyRoot + 3),
+            quality: "major",
+            romanNumeral: "bIII",
+            context: "Modal mixture from parallel minor",
+          }),
+        ];
+
+  return suggestions.filter(
+    (suggestion) => !isCurrentChordSuggestion(suggestion, detectedChord),
+  );
 }
 
 function createTritoneSubstitutionSuggestions({
   detectedChord,
   keyRoot,
+  keyMode,
 }: GeneratorContext): ChordSuggestion[] {
-  return MAJOR_KEY_TRIADS.filter(
-    (target) => target.romanNumeral === "I" || target.romanNumeral === "V",
-  )
+  const targets =
+    keyMode === "minor"
+      ? [
+          { offset: 0, quality: "minor" as const, romanNumeral: "i", priority: 0 },
+          { offset: 7, quality: "major" as const, romanNumeral: "V", priority: 1 },
+        ]
+      : MAJOR_KEY_TRIADS.filter(
+          (target) => target.romanNumeral === "I" || target.romanNumeral === "V",
+        );
+
+  return targets
     .map((target) => {
       const targetRoot = pitchClass(keyRoot + target.offset);
       const root = pitchClass(targetRoot + 1);
@@ -267,7 +362,12 @@ function createTritoneSubstitutionSuggestions({
 function createDiminishedPassingSuggestions({
   detectedChord,
   keyRoot,
+  keyMode,
 }: GeneratorContext): ChordSuggestion[] {
+  if (keyMode !== "major") {
+    return [];
+  }
+
   return [
     {
       root: pitchClass(keyRoot + 1),
@@ -314,8 +414,11 @@ function createDiminishedPassingSuggestions({
 function createDiatonicSuggestions({
   detectedChord,
   keyRoot,
+  keyMode,
 }: GeneratorContext): ChordSuggestion[] {
-  return MAJOR_KEY_TRIADS.filter((degree) => degree.romanNumeral !== "vii°")
+  const degrees = keyMode === "minor" ? MINOR_KEY_TRIADS : MAJOR_KEY_TRIADS;
+
+  return degrees.filter((degree) => degree.romanNumeral !== "vii°")
     .map((degree) =>
       createSuggestion({
         concept: "diatonic",
@@ -333,11 +436,150 @@ function createDiatonicSuggestions({
     );
 }
 
+function createHarmonicMinorDominantSuggestions({
+  detectedChord,
+  keyRoot,
+  keyMode,
+}: GeneratorContext): ChordSuggestion[] {
+  if (keyMode !== "minor") {
+    return [];
+  }
+
+  return [
+    createSuggestion({
+      concept: "harmonicMinorDominant",
+      root: pitchClass(keyRoot + 7),
+      quality: "dominant7",
+      romanNumeral: "V7 → i",
+      context: `Harmonic minor dominant → ${chordSymbol(keyRoot, "minor")}`,
+      resolutionRoot: keyRoot,
+      resolutionQuality: "minor",
+    }),
+    createSuggestion({
+      concept: "harmonicMinorDominant",
+      root: pitchClass(keyRoot + 11),
+      quality: "diminished7",
+      romanNumeral: "vii°7 → i",
+      context: `Leading-tone diminished seventh → ${chordSymbol(keyRoot, "minor")}`,
+      resolutionRoot: keyRoot,
+      resolutionQuality: "minor",
+    }),
+  ].filter((suggestion) => !isCurrentChordSuggestion(suggestion, detectedChord));
+}
+
+function createNeapolitanSuggestions({
+  detectedChord,
+  keyRoot,
+  keyMode,
+}: GeneratorContext): ChordSuggestion[] {
+  if (keyMode !== "minor") {
+    return [];
+  }
+
+  const suggestion = createSuggestion({
+    concept: "neapolitan",
+    root: pitchClass(keyRoot + 1),
+    quality: "major",
+    romanNumeral: "bII → V",
+    context: `Neapolitan predominant → ${chordSymbol(
+      pitchClass(keyRoot + 7),
+      "dominant7",
+    )}`,
+    resolutionRoot: pitchClass(keyRoot + 7),
+    resolutionQuality: "dominant7",
+  });
+
+  return isCurrentChordSuggestion(suggestion, detectedChord) ? [] : [suggestion];
+}
+
+function createPicardyThirdSuggestions({
+  detectedChord,
+  keyRoot,
+  keyMode,
+}: GeneratorContext): ChordSuggestion[] {
+  if (keyMode !== "minor") {
+    return [];
+  }
+
+  const suggestion = createSuggestion({
+    concept: "picardyThird",
+    root: keyRoot,
+    quality: "major",
+    romanNumeral: "I",
+    context: `Picardy third color on ${chordSymbol(keyRoot, "minor")}`,
+    resolutionRoot: keyRoot,
+    resolutionQuality: "minor",
+  });
+
+  return isCurrentChordSuggestion(suggestion, detectedChord) ? [] : [suggestion];
+}
+
 function createDirectResolutionSuggestion(
   detectedChord: ChordCandidate,
   keyRoot: number,
+  keyMode: KeyMode,
 ): ChordSuggestion | null {
-  if (isDiatonicChord(detectedChord, keyRoot)) {
+  if (keyMode === "minor") {
+    if (
+      detectedChord.root === pitchClass(keyRoot + 7) &&
+      detectedChord.quality === "dominant7"
+    ) {
+      return createSuggestion({
+        concept: "harmonicMinorDominant",
+        root: keyRoot,
+        quality: "minor",
+        romanNumeral: "i",
+        context: `Resolution from ${chordSymbol(
+          pitchClass(keyRoot + 7),
+          "dominant7",
+        )}`,
+      });
+    }
+
+    if (
+      detectedChord.root === pitchClass(keyRoot + 11) &&
+      detectedChord.quality === "diminished7"
+    ) {
+      return createSuggestion({
+        concept: "harmonicMinorDominant",
+        root: keyRoot,
+        quality: "minor",
+        romanNumeral: "i",
+        context: `Resolution from ${chordSymbol(
+          pitchClass(keyRoot + 11),
+          "diminished7",
+        )}`,
+      });
+    }
+
+    if (
+      detectedChord.root === pitchClass(keyRoot + 1) &&
+      detectedChord.quality === "major"
+    ) {
+      return createSuggestion({
+        concept: "neapolitan",
+        root: pitchClass(keyRoot + 7),
+        quality: "dominant7",
+        romanNumeral: "V7",
+        context: `Resolution from ${chordSymbol(
+          pitchClass(keyRoot + 1),
+          "major",
+        )}`,
+      });
+    }
+
+    if (detectedChord.root === keyRoot && detectedChord.quality === "major") {
+      return createSuggestion({
+        concept: "picardyThird",
+        root: keyRoot,
+        quality: "minor",
+        romanNumeral: "i",
+        context: `Resolution from ${chordSymbol(keyRoot, "major")}`,
+      });
+    }
+  }
+
+  if (isDiatonicChord(detectedChord, keyRoot, keyMode)) {
     return null;
   }
 
@@ -348,15 +590,20 @@ function createDirectResolutionSuggestion(
     return null;
   }
 
-  const target = MAJOR_KEY_TRIADS.filter(
-    (degree) =>
-      degree.offset !== 0 &&
-      degree.romanNumeral !== "iii" &&
-      degree.quality !== "diminished",
-  ).find(
+  const targets =
+    keyMode === "minor"
+      ? MINOR_SECONDARY_DOMINANT_TARGETS
+      : MAJOR_KEY_TRIADS.filter(
+          (degree) =>
+            degree.offset !== 0 &&
+            degree.romanNumeral !== "iii" &&
+            degree.quality !== "diminished",
+        );
+
+  const target = targets.find(
     (degree) =>
       pitchClass(keyRoot + degree.offset + 7) === detectedChord.root &&
-      !isDiatonicMajorRoot(detectedChord.root, keyRoot),
+      !isDiatonicMajorRoot(detectedChord.root, keyRoot, keyMode),
   );
 
   if (!target) {
@@ -377,6 +624,7 @@ function createDirectResolutionSuggestion(
 function createHistoryResolutionSuggestion(
   detectedChord: ChordCandidate,
   keyRoot: number,
+  keyMode: KeyMode,
   chordHistory: ChordCandidate[],
 ): ChordSuggestion | null {
   const previousChord = chordHistory[chordHistory.length - 1];
@@ -385,7 +633,11 @@ function createHistoryResolutionSuggestion(
     return null;
   }
 
-  const matchedPriorSuggestion = createGeneratedSuggestions(previousChord, keyRoot)
+  const matchedPriorSuggestion = createGeneratedSuggestions(
+    previousChord,
+    keyRoot,
+    keyMode,
+  )
     .map((entry) => entry.suggestion)
     .find(
       (suggestion) =>
@@ -397,7 +649,11 @@ function createHistoryResolutionSuggestion(
     return null;
   }
 
-  const resolutionDegree = MAJOR_KEY_TRIADS.find((degree) => {
+  const resolutionDegree = [
+    ...MAJOR_KEY_TRIADS,
+    ...MINOR_KEY_TRIADS,
+    ...MINOR_SECONDARY_DOMINANT_TARGETS,
+  ].find((degree) => {
     const root = pitchClass(keyRoot + degree.offset);
 
     return (
@@ -448,33 +704,41 @@ function createSuggestion(definition: SuggestionDefinition): ChordSuggestion {
   };
 }
 
-function rankSuggestions(
+function chooseWeightedSuggestions(
   suggestions: {
     suggestion: ChordSuggestion;
     priorityGroup: SuggestionPriorityGroup;
   }[],
   options: {
     chordHistory: ChordCandidate[];
+    random: () => number;
     recentSuggestionIds: string[];
     selectedConcept: SelectedChordConcept;
   },
 ): ChordSuggestion[] {
-  return suggestions
-    .map((entry, index) => ({ ...entry, index }))
-    .sort((a, b) => {
-      const aScore = suggestionRankScore(a, options);
-      const bScore = suggestionRankScore(b, options);
+  const weightedSuggestions = suggestions.map((entry, index) => ({
+    ...entry,
+    index,
+    weight: suggestionWeight(entry, options),
+  }));
+  const orderedSuggestions: ChordSuggestion[] = [];
 
-      if (bScore !== aScore) {
-        return bScore - aScore;
-      }
+  while (weightedSuggestions.length > 0) {
+    const selectedIndex = weightedRandomIndex(
+      weightedSuggestions.map((entry) => entry.weight),
+      options.random,
+    );
+    const [selectedEntry] = weightedSuggestions.splice(selectedIndex, 1);
 
-      return a.index - b.index;
-    })
-    .map((entry) => entry.suggestion);
+    if (selectedEntry) {
+      orderedSuggestions.push(selectedEntry.suggestion);
+    }
+  }
+
+  return orderedSuggestions;
 }
 
-function suggestionRankScore(
+function suggestionWeight(
   entry: {
     suggestion: ChordSuggestion;
     priorityGroup: SuggestionPriorityGroup;
@@ -485,35 +749,58 @@ function suggestionRankScore(
     selectedConcept: SelectedChordConcept;
   },
 ): number {
-  let score = priorityGroupScore(entry.priorityGroup);
+  let weight = priorityGroupWeight(entry.priorityGroup);
 
   if (
     options.selectedConcept !== "automatic" &&
     entry.suggestion.concept === options.selectedConcept
   ) {
-    score += 100;
+    weight *= 8;
   }
 
   if (options.recentSuggestionIds.includes(entry.suggestion.id)) {
-    score -= 25;
+    weight *= 0.2;
   }
 
   if (wasRecentlyPlayed(entry.suggestion, options.chordHistory)) {
-    score -= 15;
+    weight *= 0.35;
   }
 
-  return score;
+  return Math.max(weight, 0.01);
 }
 
-function priorityGroupScore(priorityGroup: SuggestionPriorityGroup): number {
+function priorityGroupWeight(priorityGroup: SuggestionPriorityGroup): number {
   switch (priorityGroup) {
     case "nondiatonic":
-      return 30;
+      return 12;
     case "modalMixture":
-      return 20;
+      return 6;
     case "diatonic":
-      return 10;
+      return 3;
   }
+}
+
+function weightedRandomIndex(weights: number[], random: () => number): number {
+  const totalWeight = weights.reduce((total, weight) => total + weight, 0);
+  let threshold = clampRandom(random()) * totalWeight;
+
+  for (let index = 0; index < weights.length; index += 1) {
+    threshold -= weights[index] ?? 0;
+
+    if (threshold <= 0) {
+      return index;
+    }
+  }
+
+  return Math.max(0, weights.length - 1);
+}
+
+function clampRandom(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.min(Math.max(value, 0), 0.999999);
 }
 
 function wasRecentlyPlayed(
@@ -547,8 +834,14 @@ function dedupeSuggestions(
   return uniqueSuggestions;
 }
 
-function isDiatonicChord(chord: ChordCandidate, keyRoot: number): boolean {
-  return MAJOR_KEY_TRIADS.some(
+function isDiatonicChord(
+  chord: ChordCandidate,
+  keyRoot: number,
+  keyMode: KeyMode,
+): boolean {
+  const degrees = keyMode === "minor" ? MINOR_KEY_TRIADS : MAJOR_KEY_TRIADS;
+
+  return degrees.some(
     (degree) =>
       pitchClass(keyRoot + degree.offset) === chord.root &&
       degree.quality === chord.quality,
@@ -562,25 +855,36 @@ function isCurrentChordSuggestion(
   return areChordsEquivalent(suggestion, chord);
 }
 
-function isDiatonicMajorRoot(root: number, keyRoot: number): boolean {
-  return MAJOR_KEY_TRIADS.some(
+function isDiatonicMajorRoot(
+  root: number,
+  keyRoot: number,
+  keyMode: KeyMode,
+): boolean {
+  const degrees = keyMode === "minor" ? MINOR_KEY_TRIADS : MAJOR_KEY_TRIADS;
+
+  return degrees.some(
     (degree) =>
       degree.quality === "major" &&
       pitchClass(keyRoot + degree.offset) === root,
   );
 }
 
-function byMajorKeyTargetPriority(
+function byKeyTargetPriority(
   keyRoot: number,
+  targets: KeyDegree[],
 ): (a: ChordSuggestion, b: ChordSuggestion) => number {
   return (a, b) =>
-    secondaryDominantPriority(a.symbol, keyRoot) -
-    secondaryDominantPriority(b.symbol, keyRoot);
+    secondaryDominantPriority(a.symbol, keyRoot, targets) -
+    secondaryDominantPriority(b.symbol, keyRoot, targets);
 }
 
-function secondaryDominantPriority(symbol: string, keyRoot: number): number {
+function secondaryDominantPriority(
+  symbol: string,
+  keyRoot: number,
+  targets: KeyDegree[],
+): number {
   return (
-    MAJOR_KEY_TRIADS.find((degree) => {
+    targets.find((degree) => {
       const targetRoot = pitchClass(keyRoot + degree.offset);
       const dominantRoot = pitchClass(targetRoot + 7);
 
@@ -591,7 +895,7 @@ function secondaryDominantPriority(symbol: string, keyRoot: number): number {
 
 function diatonicPriority(symbol: string, keyRoot: number): number {
   return (
-    MAJOR_KEY_TRIADS.find((degree) => {
+    [...MAJOR_KEY_TRIADS, ...MINOR_KEY_TRIADS].find((degree) => {
       const root = pitchClass(keyRoot + degree.offset);
 
       return symbol === chordSymbol(root, degree.quality);
